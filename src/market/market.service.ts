@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-import { BinanceService } from 'src/binance/binance.service';
+import { ExchangeService } from 'src/exchange/exchange.service';
 
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 
@@ -74,7 +74,7 @@ export class MarketService {
   private readonly signalDetector = new SignalDetector();
 
   constructor(
-    private readonly binanceService: BinanceService,
+    private readonly exchangeService: ExchangeService,
     private readonly liquidationService: LiquidationService,
   ) {}
 
@@ -89,7 +89,7 @@ export class MarketService {
   ): Promise<MarketCandleDto[]> {
     const { startTime, endTime } = getTimeRange(range);
 
-    const klines = await this.binanceService.getKlines(
+    const klines = await this.exchangeService.getKlines(
       symbol,
       interval,
       startTime,
@@ -109,7 +109,7 @@ export class MarketService {
   ): Promise<OpenInterestDto[]> {
     const { startTime, endTime } = getTimeRange(range);
 
-    const data = await this.binanceService.getOpenInterest(
+    const data = await this.exchangeService.getOpenInterest(
       symbol,
       startTime,
       endTime,
@@ -128,7 +128,7 @@ export class MarketService {
   ): Promise<FundingRateDto[]> {
     const { startTime, endTime } = getTimeRange(range);
 
-    const data = await this.binanceService.getFundingRate(
+    const data = await this.exchangeService.getFundingRate(
       symbol,
       startTime,
       endTime,
@@ -159,7 +159,7 @@ export class MarketService {
     // 2. Klines
     // =================================================
 
-    const klines = await this.binanceService.getKlines(
+    const klines = await this.exchangeService.getKlines(
       symbol,
       '15m',
       startTime,
@@ -170,7 +170,7 @@ export class MarketService {
     // 3. Open Interest
     // =================================================
 
-    const openInterest = await this.binanceService.getOpenInterest(
+    const openInterest = await this.exchangeService.getOpenInterest(
       symbol,
       startTime,
       endTime,
@@ -180,7 +180,7 @@ export class MarketService {
     // 4. Funding Rate
     // =================================================
 
-    const funding = await this.binanceService.getFundingRate(
+    const funding = await this.exchangeService.getFundingRate(
       symbol,
       startTime,
       endTime,
@@ -190,7 +190,7 @@ export class MarketService {
     // 5. Liquidations
     // =================================================
 
-    const liquidations = await this.binanceService.getLiquidationOrders(
+    const liquidations = await this.exchangeService.getLiquidationOrders(
       symbol,
       startTime,
       endTime,

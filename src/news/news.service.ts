@@ -52,10 +52,68 @@ export class NewsService {
   private readonly TRADINGVIEW_NEWS_URL =
     'https://news-headlines.tradingview.com/v2/headlines';
 
-  private readonly TRANSLATE_URL =
-    'https://api.mymemory.translated.net/get';
+  private readonly TRANSLATE_URL = 'https://api.mymemory.translated.net/get';
 
-  private async translateToPersian(text: string): Promise<string> {
+  private toJalaliDateString(timestamp: number): string {
+    if (!timestamp) return '';
+
+    const date = new Date(timestamp);
+    let gy = date.getFullYear();
+    const gm = date.getMonth() + 1;
+    const gd = date.getDate();
+
+    const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let jy = gy > 1600 ? 979 : 0;
+    gy -= gy > 1600 ? 1600 : 621;
+    let gDayNo =
+      365 * gy +
+      Math.floor((gy + 3) / 4) -
+      Math.floor((gy + 99) / 100) +
+      Math.floor((gy + 399) / 400) +
+      gd +
+      g_d_m[gm - 1];
+
+    jy += 33 * Math.floor(gDayNo / 12053);
+    gDayNo %= 12053;
+    jy += 4 * Math.floor(gDayNo / 1461);
+    gDayNo %= 1461;
+
+    if (gDayNo > 365) {
+      jy += Math.floor((gDayNo - 1) / 365);
+      gDayNo = (gDayNo - 1) % 365;
+    }
+
+    const jm =
+      gDayNo < 186
+        ? 1 + Math.floor(gDayNo / 31)
+        : 7 + Math.floor((gDayNo - 186) / 30);
+    const jd = 1 + (gDayNo < 186 ? gDayNo % 31 : (gDayNo - 186) % 30);
+
+    const persianMonths = [
+      'فروردین',
+      'اردیبهشت',
+      'خرداد',
+      'تیر',
+      'مرداد',
+      'شهریور',
+      'مهر',
+      'آبان',
+      'آذر',
+      'دی',
+      'بهمن',
+      'اسفند',
+    ];
+
+    return `${jd} ${persianMonths[jm - 1]} ${jy}`;
+  }
+
+  private translateToPersian(text: string): Promise<string> {
+    if (!text || text.trim().length === 0) return Promise.resolve('');
+
+    return this.callTranslateApi(text);
+  }
+
+  private async callTranslateApi(text: string): Promise<string> {
     if (!text || text.trim().length === 0) return '';
 
     try {
@@ -74,7 +132,11 @@ export class NewsService {
     }
   }
 
-  private async fetchTradingViewNews(symbol: string, limit: number, lang?: string): Promise<TradingViewNewsResponse> {
+  private async fetchTradingViewNews(
+    symbol: string,
+    limit: number,
+    lang?: string,
+  ): Promise<TradingViewNewsResponse> {
     if (!symbol) {
       return {
         status: 'error',
@@ -85,24 +147,30 @@ export class NewsService {
       };
     }
 
-    const normalizedSymbol = symbol.replace(/USD$/i, '').replace(/USDT$/i, '').toUpperCase();
+    const normalizedSymbol = symbol
+      .replace(/USD$/i, '')
+      .replace(/USDT$/i, '')
+      .toUpperCase();
     const tvSymbol = `BINANCE:${normalizedSymbol}USDT`;
 
     try {
-      const response = await axios.get<TradingViewRawResponse>(this.TRADINGVIEW_NEWS_URL, {
-        params: {
-          symbol: tvSymbol,
-          client: 'web',
-          lang: 'en',
-          locale: 'en',
-          country: 'US',
+      const response = await axios.get<TradingViewRawResponse>(
+        this.TRADINGVIEW_NEWS_URL,
+        {
+          params: {
+            symbol: tvSymbol,
+            client: 'web',
+            lang: 'en',
+            locale: 'en',
+            country: 'US',
+          },
+          timeout: 10000,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          },
         },
-        timeout: 10000,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        },
-      });
+      );
 
       const items = response.data?.items ?? [];
 
@@ -125,6 +193,10 @@ export class NewsService {
             source: item.source ?? 'TradingView',
             url: item.link ?? item.url ?? item.story_path ?? '',
             publishedOn: item.published ? item.published * 1000 : 0,
+            publishedOnShamsi:
+              lang === 'fa' && item.published
+                ? this.toJalaliDateString(item.published * 1000)
+                : undefined,
             tags: item.related_symbols?.map((s) => s.symbol).join(',') ?? '',
             imageUrl: item.thumbnail?.url ?? item.avatar_url ?? '',
           };
@@ -134,7 +206,8 @@ export class NewsService {
       return {
         status: 'success',
         hasWarning: translatedItems.length === 0,
-        message: translatedItems.length === 0 ? 'No news found for this symbol.' : '',
+        message:
+          translatedItems.length === 0 ? 'No news found for this symbol.' : '',
         symbol: normalizedSymbol,
         data: translatedItems,
       };
@@ -152,21 +225,42 @@ export class NewsService {
     }
   }
 
-  async getTradingViewNews(symbol: string, limit = 20, lang?: string): Promise<TradingViewNewsResponse> {
+  async getTradingViewNews(
+    symbol: string,
+    limit = 20,
+    lang?: string,
+  ): Promise<TradingViewNewsResponse> {
     return this.fetchTradingViewNews(symbol, limit, lang);
   }
 
   private readonly IMPORTANT_SYMBOLS = [
-    'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
-    'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT',
-    'MATICUSDT', 'LTCUSDT', 'UNIUSDT', 'ATOMUSDT', 'ETCUSDT',
+    'BTCUSDT',
+    'ETHUSDT',
+    'BNBUSDT',
+    'SOLUSDT',
+    'XRPUSDT',
+    'ADAUSDT',
+    'DOGEUSDT',
+    'AVAXUSDT',
+    'DOTUSDT',
+    'LINKUSDT',
+    'MATICUSDT',
+    'LTCUSDT',
+    'UNIUSDT',
+    'ATOMUSDT',
+    'ETCUSDT',
   ];
 
-  async getImportantNews(limit = 30, lang?: string): Promise<TradingViewNewsResponse> {
+  async getImportantNews(
+    limit = 30,
+    lang?: string,
+  ): Promise<TradingViewNewsResponse> {
     const allNews: TradingViewNewsItem[] = [];
 
     const newsResults = await Promise.allSettled(
-      this.IMPORTANT_SYMBOLS.map((symbol) => this.fetchTradingViewNews(symbol, 5, lang)),
+      this.IMPORTANT_SYMBOLS.map((symbol) =>
+        this.fetchTradingViewNews(symbol, 5, lang),
+      ),
     );
 
     for (const result of newsResults) {

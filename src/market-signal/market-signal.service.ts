@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { BinanceService } from 'src/binance/binance.service';
+import { ExchangeService } from 'src/exchange/exchange.service';
 
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 
@@ -53,7 +53,7 @@ export class MarketSignalService {
   // ==========================================
 
   constructor(
-    private readonly binanceService: BinanceService,
+    private readonly exchangeService: ExchangeService,
     private readonly liquidationService: LiquidationService,
     private readonly redisService: RedisService,
   ) {}
@@ -83,7 +83,7 @@ export class MarketSignalService {
       // Futures Klines
       // ========================================
 
-      const klines = await this.binanceService.getFuturesKlines(
+      const klines = await this.exchangeService.getFuturesKlines(
         symbol,
         '15m',
         startTime,
@@ -94,7 +94,7 @@ export class MarketSignalService {
       // Futures Open Interest
       // ========================================
 
-      const openInterest = await this.binanceService.getOpenInterest(
+      const openInterest = await this.exchangeService.getOpenInterest(
         symbol,
         startTime,
         endTime,
@@ -104,13 +104,13 @@ export class MarketSignalService {
       // Futures Funding
       // ========================================
 
-      const fundingRates = await this.binanceService.getFundingRate(
+      const fundingRates = await this.exchangeService.getFundingRate(
         symbol,
         startTime,
         endTime,
       );
 
-      let liquidations = await this.binanceService.getLiquidationOrders(
+      let liquidations = await this.exchangeService.getLiquidationOrders(
         symbol,
         startTime,
         endTime,

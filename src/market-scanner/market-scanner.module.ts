@@ -3,10 +3,11 @@ import { MarketScannerService } from './market-scanner.service';
 import { MarketScannerController } from './market-scanner.controller';
 import { MarketSignalModule } from 'src/market-signal/market-signal.module';
 import { FuturesSymbolsModule } from 'src/futures-symbols/futures-symbols.module';
-import { BinanceModule } from 'src/binance/binance.module';
+import { ExchangeModule } from 'src/exchange/exchange.module';
+import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
-  imports: [MarketSignalModule, FuturesSymbolsModule, BinanceModule],
+  imports: [MarketSignalModule, FuturesSymbolsModule, ExchangeModule, NotificationModule],
   providers: [MarketScannerService],
   controllers: [MarketScannerController],
   exports: [MarketScannerService],

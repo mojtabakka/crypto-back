@@ -24,7 +24,63 @@ export class BinanceService {
   private readonly KLINES_CACHE_TTL = 5 * 60; // 5 minutes
   private readonly OI_CACHE_TTL = 5 * 60; // 5 minutes
 
+  // Rate limiting: 2000 requests per minute (under 2400 limit)
+  private readonly MAX_REQUESTS_PER_MINUTE = 2000;
+  private readonly REQUEST_INTERVAL_MS = 60000 / 2000; // 30ms between requests
+  private lastRequestTime = 0;
+  private requestQueue: Array<{
+    resolve: (value: unknown) => void;
+    reject: (reason?: unknown) => void;
+    fn: () => Promise<unknown>;
+  }> = [];
+  private isProcessingQueue = false;
+
   constructor(private readonly redisService: RedisService) {}
+
+  private async rateLimit<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.requestQueue.push({
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        fn,
+      });
+      this.processQueue();
+    });
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue || this.requestQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessingQueue = true;
+
+    while (this.requestQueue.length > 0) {
+      const now = Date.now();
+      const timeSinceLastRequest = now - this.lastRequestTime;
+
+      if (timeSinceLastRequest < this.REQUEST_INTERVAL_MS) {
+        await this.sleep(this.REQUEST_INTERVAL_MS - timeSinceLastRequest);
+      }
+
+      const item = this.requestQueue.shift();
+      if (item) {
+        this.lastRequestTime = Date.now();
+        try {
+          const result = await item.fn();
+          item.resolve(result);
+        } catch (error) {
+          item.reject(error);
+        }
+      }
+    }
+
+    this.isProcessingQueue = false;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
   // ========================================
   // Binance API URLs
@@ -50,17 +106,19 @@ export class BinanceService {
     let currentStartTime = startTime;
 
     while (currentStartTime < endTime) {
-      const response = await axios.get<BinanceKline[]>(
-        `${this.spotBaseUrl}/api/v3/klines`,
-        {
-          params: {
-            symbol,
-            interval,
-            startTime: currentStartTime,
-            endTime,
-            limit,
+      const response = await this.rateLimit(() =>
+        axios.get<BinanceKline[]>(
+          `${this.spotBaseUrl}/api/v3/klines`,
+          {
+            params: {
+              symbol,
+              interval,
+              startTime: currentStartTime,
+              endTime,
+              limit,
+            },
           },
-        },
+        ),
       );
 
       const klines = response.data;

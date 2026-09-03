@@ -68,12 +68,16 @@ export class MarketScannerController {
   @Get('daily-above-ema50-long')
   async scanDailyAboveEma50Long(@Query('limit') limit?: string) {
     const parsedLimit = parseInt(limit ?? '20', 10);
-    return this.marketScannerService.scanForDailyAboveEma50WithLong(parsedLimit);
+    return this.marketScannerService.scanForDailyAboveEma50WithLong(
+      parsedLimit,
+    );
   }
 
   @Get('weekly-above-ema50-long')
   async scanWeeklyAboveEma50Long(@Query('limit') limit?: string) {
     const parsedLimit = parseInt(limit ?? '20', 10);
-    return this.marketScannerService.scanForWeeklyAboveEma50WithLong(parsedLimit);
+    return this.marketScannerService.scanForWeeklyAboveEma50WithLong(
+      parsedLimit,
+    );
   }
 }

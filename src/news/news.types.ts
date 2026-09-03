@@ -91,6 +91,7 @@ export interface TradingViewNewsItem {
   source: string;
   url: string;
   publishedOn: number;
+  publishedOnShamsi?: string;
   tags: string;
   imageUrl: string;
 }

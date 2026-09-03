@@ -12,8 +12,13 @@ export class WatchlistService {
     private readonly watchlistRepository: Repository<WatchlistEntity>,
   ) {}
 
-  async addToWatchlist(symbol: string, note?: string): Promise<WatchlistEntity> {
-    const existing = await this.watchlistRepository.findOne({ where: { symbol } });
+  async addToWatchlist(
+    symbol: string,
+    note?: string,
+  ): Promise<WatchlistEntity> {
+    const existing = await this.watchlistRepository.findOne({
+      where: { symbol },
+    });
     if (existing) {
       if (note) {
         existing.note = note;
@@ -22,7 +27,10 @@ export class WatchlistService {
       return existing;
     }
 
-    const entity = this.watchlistRepository.create({ symbol, note: note ?? null });
+    const entity = this.watchlistRepository.create({
+      symbol,
+      note: note ?? null,
+    });
     return this.watchlistRepository.save(entity);
   }
 
