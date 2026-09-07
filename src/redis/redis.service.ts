@@ -173,4 +173,25 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       return 0;
     }
   }
+
+  async scanKeys(pattern: string): Promise<string[]> {
+    if (!this.isConnected || !this.client) return [];
+
+    try {
+      const keys: string[] = [];
+      let cursor = '0';
+      do {
+        const result = await this.client.scan(cursor, {
+          MATCH: pattern,
+          COUNT: 100,
+        });
+        cursor = result.cursor.toString();
+        keys.push(...result.keys);
+      } while (cursor !== '0');
+      return keys;
+    } catch (err) {
+      this.logger.error(`Redis SCAN error for pattern ${pattern}`, err);
+      return [];
+    }
+  }
 }

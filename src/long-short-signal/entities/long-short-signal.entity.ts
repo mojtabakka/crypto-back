@@ -18,6 +18,10 @@ export class LongShortSignalEntity {
   symbol: string;
 
   @Index()
+  @Column({ type: 'varchar', length: 20, default: 'BINANCE' })
+  exchange: string;
+
+  @Index()
   @Column({ type: 'varchar', length: 10 })
   direction: LongShortDirection;
 

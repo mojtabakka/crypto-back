@@ -10,11 +10,14 @@ export class MarketSignalController {
   async getSignal(
     @Query('symbol')
     symbol = 'BTCUSDT',
+
+    @Query('exchange')
+    exchange = 'BINANCE',
   ) {
     const endTime = Date.now();
 
     const startTime = endTime - 24 * 60 * 60 * 1000;
 
-    return this.marketSignalService.analyzeSymbol(symbol, startTime, endTime);
+    return this.marketSignalService.analyzeSymbol(symbol, startTime, endTime, exchange);
   }
 }

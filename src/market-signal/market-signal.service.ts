@@ -66,8 +66,9 @@ export class MarketSignalService {
     symbol: string,
     startTime: number,
     endTime: number,
+    exchange: string = 'BINANCE',
   ): Promise<MultiTimeframeAnalysis> {
-    const cacheKey = `analysis:${symbol}:${startTime}:${endTime}`;
+    const cacheKey = `analysis:${symbol}:${startTime}:${endTime}:${exchange}`;
 
     const cached =
       await this.redisService.getJson<MultiTimeframeAnalysis>(cacheKey);
@@ -88,6 +89,7 @@ export class MarketSignalService {
         '15m',
         startTime,
         endTime,
+        exchange as any,
       );
 
       // ========================================
@@ -98,6 +100,7 @@ export class MarketSignalService {
         symbol,
         startTime,
         endTime,
+        exchange as any,
       );
 
       // ========================================
@@ -108,12 +111,14 @@ export class MarketSignalService {
         symbol,
         startTime,
         endTime,
+        exchange as any,
       );
 
       let liquidations = await this.exchangeService.getLiquidationOrders(
         symbol,
         startTime,
         endTime,
+        exchange as any,
       );
 
       if (!liquidations.length) {
@@ -158,7 +163,8 @@ export class MarketSignalService {
 
       return result;
     } catch (error) {
-      this.logger.error(`Market signal analysis failed for ${symbol}:`, error);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Market signal analysis skipped for ${symbol}: ${errorMsg}`);
 
       return {
         timeframes: [],
@@ -181,7 +187,14 @@ export class MarketSignalService {
     // ========================================
 
     if (!snapshots.length) {
-      throw new Error('No market snapshots provided');
+      return {
+        timeframes: [],
+        finalScore: 0,
+        finalSignal: 'NEUTRAL',
+        confidence: 0,
+        signals: [],
+        primarySignal: null,
+      };
     }
 
     // ========================================

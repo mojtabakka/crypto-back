@@ -31,15 +31,15 @@ export class LongShortSignalService implements OnModuleInit {
 
   @Cron('0 11,13,15,17,19,21,23 * * *')
   async handleCron() {
-    await this.scanAndStoreSignals();
+    await this.scanAndStoreSignals('BINANCE');
   }
 
-  private async scanAndStoreSignals() {
+  async scanAndStoreSignals(exchange: string = 'BINANCE') {
     const startTime = Date.now();
-    this.logger.log('Starting long/short signal scan...');
+    this.logger.log(`[${exchange}] Starting long/short signal scan...`);
 
     try {
-      await this.signalRepository.clear();
+      await this.signalRepository.delete({ exchange });
 
       const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
       const symbols = symbolsData.symbols
@@ -47,7 +47,7 @@ export class LongShortSignalService implements OnModuleInit {
         .map((s) => s.symbol);
 
       this.logger.log(
-        `Scanning ${symbols.length} symbols for long/short signals...`,
+        `[${exchange}] Scanning ${symbols.length} symbols for long/short signals...`,
       );
 
       const longs: LongShortSignalEntity[] = [];
@@ -61,7 +61,7 @@ export class LongShortSignalService implements OnModuleInit {
         const batch = symbols.slice(i, i + batchSize);
         const batchResults = await Promise.all(
           batch.map((symbol) =>
-            this.analyzeSymbol(symbol, analysisStart, endTime)
+            this.analyzeSymbol(symbol, analysisStart, endTime, exchange)
               .then((result) => result)
               .catch(() => null),
           ),
@@ -79,16 +79,18 @@ export class LongShortSignalService implements OnModuleInit {
       }
 
       const allSignals = [...longs, ...shorts];
-      await this.signalRepository.save(allSignals);
+      if (allSignals.length > 0) {
+        await this.signalRepository.save(allSignals);
+      }
 
       const duration = Date.now() - startTime;
       this.logger.log(
-        `Long/short signal scan complete: ${longs.length} longs, ${shorts.length} shorts in ${duration}ms`,
+        `[${exchange}] Long/short signal scan complete: ${longs.length} longs, ${shorts.length} shorts in ${duration}ms`,
       );
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error('Long/short signal scan failed', errorMessage);
+      this.logger.error(`[${exchange}] Long/short signal scan failed: ${errorMessage}`);
     }
   }
 
@@ -96,10 +98,11 @@ export class LongShortSignalService implements OnModuleInit {
     symbol: string,
     analysisStart: number,
     endTime: number,
+    exchange: string,
   ): Promise<LongShortSignalEntity | null> {
     const [analysis, mas] = await Promise.all([
-      this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime),
-      this.getMovingAverages(symbol),
+      this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, exchange),
+      this.getMovingAverages(symbol, exchange),
     ]);
 
     const isAboveEma50 = mas.maSignal === 'ABOVE';
@@ -121,6 +124,7 @@ export class LongShortSignalService implements OnModuleInit {
 
     const entity = new LongShortSignalEntity();
     entity.symbol = symbol;
+    entity.exchange = exchange;
     entity.direction = direction;
     entity.score = analysis.finalScore;
     entity.priceChange = tf1h?.priceChange ?? null;
@@ -137,7 +141,7 @@ export class LongShortSignalService implements OnModuleInit {
     return entity;
   }
 
-  private async getMovingAverages(symbol: string) {
+  private async getMovingAverages(symbol: string, exchange: string) {
     const endTime = Date.now();
     const startTime = endTime - 30 * 24 * 60 * 60 * 1000;
 
@@ -146,6 +150,7 @@ export class LongShortSignalService implements OnModuleInit {
       '1d',
       startTime,
       endTime,
+      exchange as any,
     );
 
     const closes = klines.map((k) => parseFloat(k[4]));
@@ -167,13 +172,16 @@ export class LongShortSignalService implements OnModuleInit {
     return slice.reduce((sum, p) => sum + p, 0) / period;
   }
 
-  async getLatestSignals(): Promise<{
+  async getLatestSignals(exchange?: string): Promise<{
     longs: LongShortSignalEntity[];
     shorts: LongShortSignalEntity[];
     lastUpdate: Date | null;
     totalCount: number;
+    exchange: string;
   }> {
+    const ex = exchange ?? 'BINANCE';
     const allSignals = await this.signalRepository.find({
+      where: { exchange: ex },
       order: { score: 'DESC' },
     });
 
@@ -191,20 +199,37 @@ export class LongShortSignalService implements OnModuleInit {
       shorts,
       lastUpdate,
       totalCount: allSignals.length,
+      exchange: ex,
     };
   }
 
-  async getLongSignals(): Promise<LongShortSignalEntity[]> {
+  async getLongSignals(exchange?: string): Promise<LongShortSignalEntity[]> {
     return this.signalRepository.find({
-      where: { direction: 'LONG' },
+      where: { direction: 'LONG', exchange: exchange ?? 'BINANCE' },
       order: { score: 'DESC' },
     });
   }
 
-  async getShortSignals(): Promise<LongShortSignalEntity[]> {
+  async getShortSignals(exchange?: string): Promise<LongShortSignalEntity[]> {
     return this.signalRepository.find({
-      where: { direction: 'SHORT' },
+      where: { direction: 'SHORT', exchange: exchange ?? 'BINANCE' },
       order: { score: 'DESC' },
     });
+  }
+
+  async scanForExchange(exchange: string): Promise<{
+    longs: LongShortSignalEntity[];
+    shorts: LongShortSignalEntity[];
+    lastUpdate: Date | null;
+    totalCount: number;
+  }> {
+    await this.scanAndStoreSignals(exchange);
+    const result = await this.getLatestSignals(exchange);
+    return {
+      longs: result.longs,
+      shorts: result.shorts,
+      lastUpdate: result.lastUpdate,
+      totalCount: result.totalCount,
+    };
   }
 }

@@ -40,49 +40,54 @@ export class OkxService {
     endTime: number,
     limit = 100,
   ): Promise<BinanceKline[]> {
+    this.logger.log(`OKX getFuturesKlines: ${symbol} ${interval} ${new Date(startTime).toISOString()} -> ${new Date(endTime).toISOString()}`);
+
     const cacheKey = `okx:klines:${symbol}:${interval}:${startTime}:${endTime}`;
 
     const cached = await this.redisService.getJson<BinanceKline[]>(cacheKey);
     if (cached && cached.length > 0) {
+      this.logger.debug(`OKX cache hit: ${cached.length} klines for ${symbol}`);
       return cached;
     }
 
     const allKlines: BinanceKline[] = [];
-    let currentStartTime = startTime;
+    let currentEndTime = endTime;
 
     const okxInterval = this.mapInterval(interval);
     const instId = symbol.replace('USDT', '-USDT-SWAP');
 
-    while (currentStartTime < endTime) {
+    while (currentEndTime > startTime) {
       try {
-        const response = await axios.get(
-          `${this.baseUrl}/api/v5/market/candles`,
-          {
-            params: {
-              instId,
-              bar: okxInterval,
-              after: currentStartTime,
-              before: endTime,
-              limit,
-            },
-            headers: {
-              'User-Agent': 'Mozilla/5.0',
-            },
+        const url = `${this.baseUrl}/api/v5/market/candles`;
+        const params = {
+          instId,
+          bar: okxInterval,
+          before: currentEndTime,
+          limit: Math.min(limit, 300),
+        };
+        this.logger.log(`🌐 [OKX] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`);
+
+        const response = await axios.get(url, {
+          params,
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
           },
-        );
+        });
 
         const data = response.data?.data;
         if (!data || data.length === 0) break;
 
         for (const item of data) {
+          const timestamp = Number(item[0]);
+          if (timestamp < startTime) continue;
           allKlines.push([
-            Number(item[0]),
+            timestamp,
             item[1],
             item[2],
             item[3],
             item[4],
             item[5],
-            Number(item[0]) + this.getIntervalMs(interval),
+            timestamp + this.getIntervalMs(interval),
             item[6],
             0,
             item[7],
@@ -92,15 +97,19 @@ export class OkxService {
         }
 
         const lastTimestamp = Number(data[data.length - 1][0]);
-        currentStartTime = lastTimestamp + 1;
+        if (lastTimestamp <= startTime) break;
+        currentEndTime = lastTimestamp - 1;
 
         if (data.length < limit) break;
       } catch (error) {
-        this.logger.warn(`OKX klines fetch failed for ${symbol}: ${error}`);
+        this.logger.warn(`OKX klines fetch failed for ${symbol}: ${error instanceof Error ? error.message : 'Unknown'}`);
         break;
       }
     }
 
+    allKlines.sort((a, b) => a[0] - b[0]);
+
+    this.logger.log(`OKX getFuturesKlines: ${allKlines.length} klines for ${symbol}`);
     await this.redisService.setJson(cacheKey, allKlines, this.KLINES_CACHE_TTL);
     return allKlines;
   }

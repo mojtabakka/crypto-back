@@ -68,4 +68,66 @@ export class NotificationGateway
       timestamp: new Date(),
     });
   }
+
+  sendPumpAlert(data: {
+    symbol: string;
+    exchange: string;
+    severity: string;
+    pumpScore: number;
+    priceChange1h: number;
+    priceChange4h: number;
+    currentPrice: number;
+    reasons: string[];
+  }) {
+    this.server.emit('pumpAlert', {
+      ...data,
+      message: `🚨 ${data.severity} pump detected: ${data.symbol} (+${data.priceChange1h.toFixed(2)}% 1h, score ${data.pumpScore})`,
+      timestamp: new Date(),
+    });
+  }
+
+  sendDumpAlert(data: {
+    symbol: string;
+    exchange: string;
+    severity: string;
+    dumpScore: number;
+    priceChange1h: number;
+    priceChange4h: number;
+    currentPrice: number;
+    reasons: string[];
+  }) {
+    this.server.emit('dumpAlert', {
+      ...data,
+      message: `🔻 ${data.severity} dump detected: ${data.symbol} (${data.priceChange1h.toFixed(2)}% 1h, score ${data.dumpScore})`,
+      timestamp: new Date(),
+    });
+  }
+
+  sendPreMoveAlert(data: {
+    symbol: string;
+    type: 'PUMP' | 'DUMP';
+    strength: string;
+    confidence: number;
+    longLiqValue: number;
+    shortLiqValue: number;
+    imbalanceRatio: number;
+    currentPrice: number | null;
+    windowMs: number;
+    reasons: string[];
+  }) {
+    const emoji = data.type === 'PUMP' ? '📈' : '📉';
+    const dir = data.type === 'PUMP' ? 'upward' : 'downward';
+    this.server.emit('preMoveAlert', {
+      ...data,
+      message: `${emoji} ${data.strength} pre-${data.type.toLowerCase()} signal: ${data.symbol} | ` +
+        `confidence ${data.confidence.toFixed(0)}% | ${dir} move likely in next ${this.formatWindow(data.windowMs)}`,
+      timestamp: new Date(),
+    });
+  }
+
+  private formatWindow(ms: number): string {
+    const minutes = Math.floor(ms / 60000);
+    if (minutes >= 60) return `${Math.floor(minutes / 60)}h`;
+    return `${minutes}m`;
+  }
 }

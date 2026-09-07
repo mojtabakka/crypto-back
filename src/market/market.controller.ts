@@ -34,6 +34,8 @@ export class MarketController {
       query.interval,
 
       query.range,
+
+      query.exchange,
     );
   }
 
@@ -47,11 +49,16 @@ export class MarketController {
 
     @Query('range')
     range: string,
+
+    @Query('exchange')
+    exchange?: string,
   ) {
     return this.marketService.getOpenInterest(
       symbol,
 
       range,
+
+      exchange,
     );
   }
 
@@ -65,11 +72,16 @@ export class MarketController {
 
     @Query('range')
     range: string,
+
+    @Query('exchange')
+    exchange?: string,
   ) {
     return this.marketService.getFundingRate(
       symbol,
 
       range,
+
+      exchange,
     );
   }
 
@@ -101,11 +113,16 @@ export class MarketController {
 
     @Query('range')
     range: MarketRange = '24h',
+
+    @Query('exchange')
+    exchange?: string,
   ): Promise<MarketResponseDto> {
     return this.marketService.getSignals(
       symbol,
 
       range,
+
+      exchange,
     );
   }
 }

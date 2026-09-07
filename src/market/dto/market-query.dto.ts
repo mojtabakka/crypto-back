@@ -1,4 +1,4 @@
-import { IsIn, IsString, Matches } from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches } from 'class-validator';
 
 export class MarketQueryDto {
   @IsString()
@@ -23,4 +23,9 @@ export class MarketQueryDto {
     message: 'range must be like 24h, 48h, 7d or 30d',
   })
   range: string = '24h';
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['BINANCE', 'OKX', 'BYBIT', 'MEXC', 'KUCOIN', 'BINGX', 'CRYPTOCOM'])
+  exchange?: string = 'BINANCE';
 }

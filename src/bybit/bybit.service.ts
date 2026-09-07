@@ -54,22 +54,23 @@ export class BybitService {
 
     while (currentStartTime < endTime) {
       try {
-        const response = await axios.get(
-          `${this.baseUrl}/v5/market/kline`,
-          {
-            params: {
-              category: 'linear',
-              symbol,
-              interval: bybitInterval,
-              start: currentStartTime,
-              end: endTime,
-              limit,
-            },
-            headers: {
-              'User-Agent': 'Mozilla/5.0',
-            },
+        const url = `${this.baseUrl}/v5/market/kline`;
+        const params = {
+          category: 'linear',
+          symbol,
+          interval: bybitInterval,
+          start: currentStartTime,
+          end: endTime,
+          limit,
+        };
+        this.logger.log(`🌐 [BYBIT] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`);
+
+        const response = await axios.get(url, {
+          params,
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
           },
-        );
+        });
 
         const result = response.data?.result?.list;
         if (!result || result.length === 0) break;

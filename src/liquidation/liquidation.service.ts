@@ -1,6 +1,6 @@
 import {
   Injectable,
-  OnModuleInit,
+  OnApplicationBootstrap,
   OnModuleDestroy,
   Logger,
 } from '@nestjs/common';
@@ -12,12 +12,24 @@ import { RedisService } from 'src/redis/redis.service';
 
 interface BinanceLiquidationEvent {
   E: number;
-
   o: {
     s: string;
     S: string;
     q: string;
     p: string;
+  };
+}
+
+interface BybitLiquidationMessage {
+  topic: string;
+  type: string;
+  ts: number;
+  data: {
+    updatedTime: number;
+    symbol: string;
+    side: 'Buy' | 'Sell';
+    size: string;
+    price: string;
   };
 }
 
@@ -31,94 +43,181 @@ interface PersistedLiquidation {
 }
 
 @Injectable()
-export class LiquidationService implements OnModuleInit, OnModuleDestroy {
+export class LiquidationService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(LiquidationService.name);
 
-  private socket?: WebSocket;
+  private binanceSocket?: WebSocket;
+  private bybitSocket?: WebSocket;
 
   private liquidations: LiquidationDto[] = [];
 
-  private readonly REDIS_TTL = 7 * 24 * 60 * 60; // 7 days
-
+  private readonly REDIS_TTL = 7 * 24 * 60 * 60;
   private readonly MAX_INMEMORY = 1000;
+
+  private binanceConnected = false;
+  private bybitConnected = false;
+  private bybitResubscribeTimer?: NodeJS.Timeout;
 
   constructor(private readonly redisService: RedisService) {}
 
-  onModuleInit() {
-    this.connect();
+  onApplicationBootstrap() {
+    this.logger.log('Starting liquidation WebSockets (Binance + Bybit fallback)...');
+    this.connectBinance();
+    this.connectBybit();
   }
 
   onModuleDestroy() {
-    this.socket?.close();
+    this.binanceSocket?.close();
+    this.bybitSocket?.close();
+    if (this.bybitResubscribeTimer) clearTimeout(this.bybitResubscribeTimer);
   }
 
-  private connect() {
-    this.socket = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
+  private connectBinance() {
+    try {
+      this.binanceSocket = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
 
-    this.socket.on('open', () => {
-      this.logger.log('Binance Liquidation WebSocket connected');
-    });
+      this.binanceSocket.on('open', () => {
+        this.binanceConnected = true;
+        this.logger.log('✅ Binance Liquidation WebSocket connected (primary)');
+      });
 
-    this.socket.on('message', (message: RawData) => {
-      let text: string;
+      this.binanceSocket.on('message', (message: RawData) => {
+        let text: string;
+        if (Array.isArray(message)) {
+          text = Buffer.concat(message.map((m) => Buffer.from(m))).toString();
+        } else {
+          text = Buffer.from(new Uint8Array(message)).toString();
+        }
+        void this.handleBinanceMessage(text);
+      });
 
-      if (Array.isArray(message)) {
-        text = Buffer.concat(message.map((m) => Buffer.from(m))).toString();
-      } else {
-        text = Buffer.from(new Uint8Array(message)).toString();
-      }
+      this.binanceSocket.on('close', () => {
+        this.binanceConnected = false;
+        this.logger.warn('❌ Binance Liquidation WebSocket disconnected (will retry)');
+        setTimeout(() => this.connectBinance(), 10000);
+      });
 
-      void this.handleMessage(text);
-    });
-
-    this.socket.on('close', () => {
-      this.logger.warn('Liquidation WebSocket disconnected');
-
-      setTimeout(() => this.connect(), 5000);
-    });
-
-    this.socket.on('error', (error) => {
-      this.logger.error('Liquidation WebSocket error:', error);
-    });
-  }
-
-  private async handleMessage(message: string) {
-    const data = JSON.parse(message) as BinanceLiquidationEvent;
-
-    const order = data.o;
-
-    if (!order) {
-      return;
+      this.binanceSocket.on('error', (error) => {
+        this.binanceConnected = false;
+        this.logger.warn(`Binance WebSocket error: ${error.message} — Bybit will continue providing data`);
+      });
+    } catch (err) {
+      this.logger.error(`Failed to connect to Binance: ${(err as Error).message}`);
     }
+  }
 
-    const quantity = Number(order.q);
+  private connectBybit() {
+    try {
+      this.bybitSocket = new WebSocket('wss://stream.bybit.com/v5/public/linear');
 
-    const price = Number(order.p);
+      this.bybitSocket.on('open', () => {
+        this.bybitConnected = true;
+        this.logger.log('✅ Bybit Liquidation WebSocket connected (fallback)');
+        this.subscribeBybitLiquidations();
+      });
 
-    const liquidation: LiquidationDto = {
-      time: data.E,
+      this.bybitSocket.on('message', (message: RawData) => {
+        let text: string;
+        if (Array.isArray(message)) {
+          text = Buffer.concat(message.map((m) => Buffer.from(m))).toString();
+        } else {
+          text = Buffer.from(new Uint8Array(message)).toString();
+        }
+        void this.handleBybitMessage(text);
+      });
 
-      symbol: order.s,
+      this.bybitSocket.on('close', () => {
+        this.bybitConnected = false;
+        this.logger.warn('❌ Bybit Liquidation WebSocket disconnected (will retry)');
+        setTimeout(() => this.connectBybit(), 10000);
+      });
 
-      side: order.S === 'SELL' ? 'LONG' : 'SHORT',
+      this.bybitSocket.on('error', (error) => {
+        this.bybitConnected = false;
+        this.logger.warn(`Bybit WebSocket error: ${error.message}`);
+      });
+    } catch (err) {
+      this.logger.error(`Failed to connect to Bybit: ${(err as Error).message}`);
+    }
+  }
 
-      quantity,
+  private subscribeBybitLiquidations() {
+    if (!this.bybitSocket || !this.bybitConnected) return;
 
-      price,
-
-      value: quantity * price,
+    const subscribeMsg = {
+      op: 'subscribe',
+      args: ['allLiquidation.BTCUSDT', 'allLiquidation.ETHUSDT', 'allLiquidation.SOLUSDT'],
     };
 
-    this.liquidations.push(liquidation);
+    this.bybitSocket.send(JSON.stringify(subscribeMsg));
+    this.logger.log('Subscribed to Bybit allLiquidation for top symbols');
 
-    await this.persist(liquidation);
-
-    this.cleanup();
+    if (this.bybitResubscribeTimer) clearTimeout(this.bybitResubscribeTimer);
+    this.bybitResubscribeTimer = setTimeout(() => {
+      this.logger.log('Bybit: re-subscribing after 30s to refresh subscription');
+      this.bybitSocket?.send(JSON.stringify(subscribeMsg));
+    }, 30000);
   }
 
-  // ==========================================
-  // Redis Persistence
-  // ==========================================
+  private async handleBinanceMessage(message: string) {
+    try {
+      const data = JSON.parse(message) as BinanceLiquidationEvent;
+      const order = data.o;
+      if (!order) return;
+
+      const quantity = Number(order.q);
+      const price = Number(order.p);
+      const liquidation: LiquidationDto = {
+        time: data.E,
+        symbol: order.s,
+        side: order.S === 'SELL' ? 'LONG' : 'SHORT',
+        quantity,
+        price,
+        value: quantity * price,
+      };
+
+      this.liquidations.push(liquidation);
+      await this.persist(liquidation);
+      this.cleanup();
+    } catch (err) {
+      this.logger.warn(`Failed to parse Binance liquidation: ${(err as Error).message}`);
+    }
+  }
+
+  private async handleBybitMessage(message: string) {
+    try {
+      const parsed = JSON.parse(message) as BybitLiquidationMessage | { op?: string; success?: boolean };
+
+      if ('op' in parsed || 'success' in parsed) {
+        return;
+      }
+
+      const liqMsg = parsed as BybitLiquidationMessage;
+      if (!liqMsg.topic || !liqMsg.topic.startsWith('allLiquidation.') || !liqMsg.data) {
+        return;
+      }
+
+      const data = liqMsg.data;
+      const symbol = data.symbol;
+      const price = Number(data.price);
+      const quantity = Number(data.size);
+      const side: 'LONG' | 'SHORT' = data.side === 'Buy' ? 'SHORT' : 'LONG';
+
+      const liquidation: LiquidationDto = {
+        time: data.updatedTime,
+        symbol,
+        side,
+        quantity,
+        price,
+        value: quantity * price,
+      };
+
+      this.liquidations.push(liquidation);
+      await this.persist(liquidation);
+    } catch (err) {
+      this.logger.warn(`Failed to parse Bybit liquidation: ${(err as Error).message}`);
+    }
+  }
 
   private async persist(liquidation: LiquidationDto): Promise<void> {
     const key = `liquidation:${liquidation.symbol}`;
@@ -149,56 +248,34 @@ export class LiquidationService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  // ==========================================
-  // Cleanup
-  // ==========================================
-
   private cleanup() {
     const cutoff = Date.now() - 48 * 60 * 60 * 1000;
-
     this.liquidations = this.liquidations.filter((item) => item.time >= cutoff);
   }
-
-  // ==========================================
-  // Get Liquidations (In-Memory + Redis)
-  // ==========================================
 
   async getLiquidations(
     symbol: string,
     range: string,
   ): Promise<LiquidationDto[]> {
     const now = Date.now();
-
     const durations: Record<string, number> = {
       '24h': 24 * 60 * 60 * 1000,
-
       '48h': 48 * 60 * 60 * 1000,
-
       '7d': 7 * 24 * 60 * 60 * 1000,
     };
 
     const duration = durations[range];
-
     if (!duration) {
       throw new Error(`Unsupported range: ${range}`);
     }
 
     const start = now - duration;
 
-    // ========================================
-    // 1. In-Memory Data (live WebSocket)
-    // ========================================
-
     const inMemory = this.liquidations.filter(
       (item) => item.symbol === symbol && item.time >= start,
     );
 
-    // ========================================
-    // 2. Redis Data (persisted historical)
-    // ========================================
-
     const redisKey = `liquidation:${symbol}`;
-
     const redisRaw = await this.redisService.lrange(redisKey, 0, -1);
 
     const redisData: LiquidationDto[] = [];
@@ -206,7 +283,6 @@ export class LiquidationService implements OnModuleInit, OnModuleDestroy {
     for (const raw of redisRaw) {
       try {
         const parsed = JSON.parse(raw) as PersistedLiquidation;
-
         if (parsed.symbol === symbol && parsed.time >= start) {
           redisData.push({
             time: parsed.time,
@@ -222,12 +298,7 @@ export class LiquidationService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // ========================================
-    // 3. Merge (deduplicate by time)
-    // ========================================
-
     const seen = new Set(inMemory.map((item) => item.time));
-
     const merged = [...inMemory];
 
     for (const item of redisData) {
@@ -238,5 +309,12 @@ export class LiquidationService implements OnModuleInit, OnModuleDestroy {
     }
 
     return merged.sort((a, b) => a.time - b.time);
+  }
+
+  getStatus(): { binance: boolean; bybit: boolean } {
+    return {
+      binance: this.binanceConnected,
+      bybit: this.bybitConnected,
+    };
   }
 }

@@ -86,6 +86,7 @@ export class MarketService {
     symbol: string,
     interval: string,
     range: string,
+    exchange: string = 'BINANCE',
   ): Promise<MarketCandleDto[]> {
     const { startTime, endTime } = getTimeRange(range);
 
@@ -94,6 +95,7 @@ export class MarketService {
       interval,
       startTime,
       endTime,
+      exchange as any,
     );
 
     return klines.map(mapBinanceKlineToCandle);
@@ -106,6 +108,7 @@ export class MarketService {
   async getOpenInterest(
     symbol: string,
     range: string,
+    exchange: string = 'BINANCE',
   ): Promise<OpenInterestDto[]> {
     const { startTime, endTime } = getTimeRange(range);
 
@@ -113,6 +116,7 @@ export class MarketService {
       symbol,
       startTime,
       endTime,
+      exchange as any,
     );
 
     return data.map(mapOpenInterest);
@@ -125,6 +129,7 @@ export class MarketService {
   async getFundingRate(
     symbol: string,
     range: string,
+    exchange: string = 'BINANCE',
   ): Promise<FundingRateDto[]> {
     const { startTime, endTime } = getTimeRange(range);
 
@@ -132,6 +137,7 @@ export class MarketService {
       symbol,
       startTime,
       endTime,
+      exchange as any,
     );
 
     return data.map(mapFundingRate);
@@ -144,6 +150,7 @@ export class MarketService {
   async getSignals(
     symbol: string,
     range: MarketRange,
+    exchange: string = 'BINANCE',
   ): Promise<MarketResponseDto> {
     // =================================================
     // 1. Time Range
@@ -164,6 +171,7 @@ export class MarketService {
       '15m',
       startTime,
       endTime,
+      exchange as any,
     );
 
     // =================================================
@@ -174,6 +182,7 @@ export class MarketService {
       symbol,
       startTime,
       endTime,
+      exchange as any,
     );
 
     // =================================================
@@ -184,6 +193,7 @@ export class MarketService {
       symbol,
       startTime,
       endTime,
+      exchange as any,
     );
 
     // =================================================
@@ -194,6 +204,7 @@ export class MarketService {
       symbol,
       startTime,
       endTime,
+      exchange as any,
     );
 
     // اگر API لیکوئیداسیون ندارد، از WebSocket استفاده کن
