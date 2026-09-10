@@ -29,6 +29,18 @@ export class MarketScannerController {
     );
   }
 
+  @Get('fake-signals')
+  async scanFakeSignals(
+    @Query('limit') limit?: string,
+    @Query('exchange') exchange?: string,
+  ) {
+    const parsedLimit = parseInt(limit ?? '50', 10);
+    return this.marketScannerService.scanFakeSignals(
+      parsedLimit,
+      exchange ?? 'BINANCE',
+    );
+  }
+
   @Get('pullbacks')
   async scanPullbacks(
     @Query('limit') limit?: string,

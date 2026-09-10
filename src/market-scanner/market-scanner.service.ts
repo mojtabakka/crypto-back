@@ -55,6 +55,24 @@ export interface ScannerResult {
   timestamp: string;
 }
 
+export interface FakeSignalRisk {
+  symbol: string;
+  fakeSignalProbability: number;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  rsi: number | null;
+  priceVsEma50: number | null;
+  volumeRatio: number | null;
+  momentum: number | null;
+  direction: 'LONG' | 'SHORT';
+}
+
+export interface FakeSignalScanResult {
+  risks: FakeSignalRisk[];
+  scanned: number;
+  duration: number;
+  timestamp: string;
+}
+
 export interface PullbackResult {
   longs: PullbackSignal[];
   shorts: PullbackSignal[];
@@ -841,6 +859,222 @@ export class MarketScannerService {
     }
 
     return true;
+  }
+
+  async scanFakeSignals(
+    limit = 50,
+    exchange: string = 'BINANCE',
+  ): Promise<FakeSignalScanResult> {
+    this.setExchange(exchange).setStrategy('FAKE_SIGNALS');
+    const startTime = Date.now();
+    this.logWithContext('Starting fake signal scan...');
+
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbols = symbolsData.symbols
+      .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
+      .map((s) => s.symbol);
+
+    this.logWithContext(`Scanning ${symbols.length} symbols for fake signals...`);
+
+    const endTime = Date.now();
+    const analysisStart = endTime - 24 * 60 * 60 * 1000;
+
+    const risks: FakeSignalRisk[] = [];
+    const batchSize = 5;
+
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      const batch = symbols.slice(i, i + batchSize);
+      const batchResults = await Promise.all(
+        batch.map((symbol) =>
+          this.analyzeFakeSignalRisk(symbol, analysisStart, endTime)
+            .then((risk) => risk)
+            .catch(() => null),
+        ),
+      );
+
+      for (const risk of batchResults) {
+        if (risk) risks.push(risk);
+      }
+    }
+
+    risks.sort((a, b) => b.fakeSignalProbability - a.fakeSignalProbability);
+
+    const duration = Date.now() - startTime;
+    this.logWithContext(`Fake signal scan complete: ${risks.length} risks found in ${duration}ms`);
+
+    return {
+      risks: risks.slice(0, limit),
+      scanned: symbols.length,
+      duration,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  private async analyzeFakeSignalRisk(
+    symbol: string,
+    startTime: number,
+    endTime: number,
+  ): Promise<FakeSignalRisk | null> {
+    try {
+      const [analysis, klines] = await Promise.all([
+        this.marketSignalService.analyzeSymbol(symbol, startTime, endTime, this.currentExchange),
+        this.getKlines(symbol, '1h', startTime, endTime),
+      ]);
+
+      const isLong = analysis.finalSignal === 'LONG' || analysis.finalSignal === 'STRONG_LONG';
+      const isShort = analysis.finalSignal === 'SHORT' || analysis.finalSignal === 'STRONG_SHORT';
+
+      if (!isLong && !isShort) {
+        return null;
+      }
+
+      if (klines.length < 50) {
+        return null;
+      }
+
+      const closes = klines.map((k) => parseFloat(k[4] as string));
+      const volumes = klines.map((k) => parseFloat(k[5] as string));
+
+      const currentPrice = closes[closes.length - 1];
+      const ema50 = this.calculateEMA(closes, 50);
+      const priceVsEma50 = ema50 ? ((currentPrice - ema50) / ema50) * 100 : null;
+      const rsi = this.calculateRSI(closes, 14);
+      const volumeRatio = this.calculateVolumeRatio(volumes, 20);
+      const momentum = this.calculateMomentum(closes, 6);
+
+      const direction = isLong ? 'LONG' : 'SHORT';
+      const fakeSignalProbability = this.calculateFakeSignalProbability({
+        direction,
+        rsi,
+        priceVsEma50,
+        volumeRatio,
+        momentum,
+      });
+
+      return {
+        symbol,
+        fakeSignalProbability,
+        riskLevel: this.getRiskLevel(fakeSignalProbability),
+        rsi,
+        priceVsEma50,
+        volumeRatio,
+        momentum,
+        direction,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private calculateRSI(prices: number[], period: number): number | null {
+    if (prices.length < period + 1) return null;
+
+    let gains = 0;
+    let losses = 0;
+
+    for (let i = prices.length - period; i < prices.length; i++) {
+      const change = prices[i] - prices[i - 1];
+      if (change > 0) {
+        gains += change;
+      } else {
+        losses += Math.abs(change);
+      }
+    }
+
+    if (losses === 0) return 100;
+
+    const rs = gains / losses;
+    return 100 - 100 / (1 + rs);
+  }
+
+  private calculateVolumeRatio(volumes: number[], lookback: number): number | null {
+    if (volumes.length < lookback + 1) return null;
+
+    const recentVolume = volumes[volumes.length - 1];
+    const averageVolume = volumes.slice(-lookback, -1).reduce((sum, v) => sum + v, 0) / lookback;
+
+    if (averageVolume === 0) return null;
+
+    return recentVolume / averageVolume;
+  }
+
+  private calculateMomentum(closes: number[], periods: number): number | null {
+    if (closes.length < periods + 1) return null;
+
+    const current = closes[closes.length - 1];
+    const previous = closes[closes.length - 1 - periods];
+
+    if (previous === 0) return null;
+
+    return ((current - previous) / previous) * 100;
+  }
+
+  private calculateFakeSignalProbability({
+    direction,
+    rsi,
+    priceVsEma50,
+    volumeRatio,
+    momentum,
+  }: {
+    direction: 'LONG' | 'SHORT';
+    rsi: number | null;
+    priceVsEma50: number | null;
+    volumeRatio: number | null;
+    momentum: number | null;
+  }): number {
+    let risk = 0;
+
+    if (direction === 'LONG') {
+      if (rsi !== null) {
+        if (rsi >= 70) risk += 30;
+        else if (rsi >= 65) risk += 20;
+        else if (rsi >= 60) risk += 10;
+      }
+
+      if (priceVsEma50 !== null) {
+        if (priceVsEma50 >= 5) risk += 25;
+        else if (priceVsEma50 >= 3) risk += 15;
+        else if (priceVsEma50 >= 1.5) risk += 5;
+      }
+
+      if (volumeRatio !== null) {
+        if (volumeRatio < 0.8) risk += 20;
+        else if (volumeRatio < 1.0) risk += 10;
+      }
+
+      if (momentum !== null && momentum < 0) {
+        risk += 15;
+      }
+    } else {
+      if (rsi !== null) {
+        if (rsi <= 30) risk += 30;
+        else if (rsi <= 35) risk += 20;
+        else if (rsi <= 40) risk += 10;
+      }
+
+      if (priceVsEma50 !== null) {
+        if (priceVsEma50 <= -5) risk += 25;
+        else if (priceVsEma50 <= -3) risk += 15;
+        else if (priceVsEma50 <= -1.5) risk += 5;
+      }
+
+      if (volumeRatio !== null) {
+        if (volumeRatio < 0.8) risk += 20;
+        else if (volumeRatio < 1.0) risk += 10;
+      }
+
+      if (momentum !== null && momentum > 0) {
+        risk += 15;
+      }
+    }
+
+    return Math.min(Math.max(risk, 0), 100);
+  }
+
+  private getRiskLevel(probability: number): 'LOW' | 'MEDIUM' | 'HIGH' {
+    if (probability >= 65) return 'HIGH';
+    if (probability >= 35) return 'MEDIUM';
+    return 'LOW';
   }
 
   async scanForPullbacks(
