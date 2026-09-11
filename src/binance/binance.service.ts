@@ -40,7 +40,7 @@ export class BinanceService {
   private async rateLimit<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.requestQueue.push({
-        resolve: resolve as (value: unknown) => void,
+        resolve: resolve,
         reject,
         fn,
       });
@@ -107,18 +107,15 @@ export class BinanceService {
 
     while (currentStartTime < endTime) {
       const response = await this.rateLimit(() =>
-        axios.get<BinanceKline[]>(
-          `${this.spotBaseUrl}/api/v3/klines`,
-          {
-            params: {
-              symbol,
-              interval,
-              startTime: currentStartTime,
-              endTime,
-              limit,
-            },
+        axios.get<BinanceKline[]>(`${this.spotBaseUrl}/api/v3/klines`, {
+          params: {
+            symbol,
+            interval,
+            startTime: currentStartTime,
+            endTime,
+            limit,
           },
-        ),
+        }),
       );
 
       const klines = response.data;

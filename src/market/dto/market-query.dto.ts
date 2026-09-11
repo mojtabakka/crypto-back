@@ -26,6 +26,16 @@ export class MarketQueryDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['BINANCE', 'OKX', 'BYBIT', 'MEXC', 'KUCOIN', 'BINGX', 'CRYPTOCOM'])
+  @IsIn([
+    'BINANCE',
+    'OKX',
+    'BYBIT',
+    'MEXC',
+    'KUCOIN',
+    'BINGX',
+    'CRYPTOCOM',
+    'TOOBIT',
+    'LBANK',
+  ])
   exchange?: string = 'BINANCE';
 }

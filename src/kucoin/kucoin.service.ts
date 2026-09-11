@@ -37,7 +37,9 @@ export class KucoinService {
         from: startTime,
         to: endTime,
       };
-      this.logger.log(`🌐 [KUCOIN] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`);
+      this.logger.log(
+        `🌐 [KUCOIN] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`,
+      );
 
       const response = await axios.get(url, {
         params,
@@ -47,7 +49,14 @@ export class KucoinService {
       const items = response.data?.data ?? [];
       const klines: BinanceKline[] = [];
       for (let i = 0; i < items.length && i < limit; i++) {
-        const item = items[i] as [number, number, number, number, number, number];
+        const item = items[i] as [
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+        ];
         klines.push([
           item[0] * 1000,
           String(item[1]),
@@ -66,7 +75,9 @@ export class KucoinService {
 
       return klines;
     } catch (error) {
-      this.logger.error(`KuCoin klines error: ${error instanceof Error ? error.message : 'Unknown'}`);
+      this.logger.error(
+        `KuCoin klines error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      );
       return [];
     }
   }
@@ -77,7 +88,9 @@ export class KucoinService {
     endTime: number,
   ): Promise<BinanceOpenInterest[]> {
     try {
-      const response = await axios.get(`${this.baseUrl}/api/v1/contracts/${symbol}`);
+      const response = await axios.get(
+        `${this.baseUrl}/api/v1/contracts/${symbol}`,
+      );
       const data = response.data?.data ?? {};
       return [
         {
@@ -98,10 +111,13 @@ export class KucoinService {
     endTime: number,
   ): Promise<BinanceFundingRate[]> {
     try {
-      const response = await axios.get(`${this.baseUrl}/api/v1/contract/funding-rates`, {
-        params: { symbol, from: startTime, to: endTime },
-        timeout: 10000,
-      });
+      const response = await axios.get(
+        `${this.baseUrl}/api/v1/contract/funding-rates`,
+        {
+          params: { symbol, from: startTime, to: endTime },
+          timeout: 10000,
+        },
+      );
 
       const items = response.data?.data ?? [];
       return items.map((item: { time: number; value: number }) => ({

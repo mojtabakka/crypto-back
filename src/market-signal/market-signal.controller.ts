@@ -18,6 +18,11 @@ export class MarketSignalController {
 
     const startTime = endTime - 24 * 60 * 60 * 1000;
 
-    return this.marketSignalService.analyzeSymbol(symbol, startTime, endTime, exchange);
+    return this.marketSignalService.analyzeSymbol(
+      symbol,
+      startTime,
+      endTime,
+      exchange,
+    );
   }
 }

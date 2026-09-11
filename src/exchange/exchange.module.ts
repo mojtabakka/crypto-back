@@ -9,6 +9,9 @@ import { MexcModule } from 'src/mexc/mexc.module';
 import { KucoinModule } from 'src/kucoin/kucoin.module';
 import { BingxModule } from 'src/bingx/bingx.module';
 import { CryptocomModule } from 'src/cryptocom/cryptocom.module';
+import { ToobitModule } from 'src/toobit/toobit.module';
+import { LbankModule } from 'src/lbank/lbank.module';
+import { OrbitModule } from 'src/orbit/orbit.module';
 import { KlineModule } from 'src/kline/kline.module';
 
 @Module({
@@ -20,6 +23,9 @@ import { KlineModule } from 'src/kline/kline.module';
     KucoinModule,
     BingxModule,
     CryptocomModule,
+    ToobitModule,
+    LbankModule,
+    OrbitModule,
     KlineModule,
   ],
   controllers: [ExchangeController],

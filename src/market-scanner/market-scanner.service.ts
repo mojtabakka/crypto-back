@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { MarketSignalService } from 'src/market-signal/market-signal.service';
 import { FuturesSymbolsService } from 'src/futures-symbols/futures-symbols.service';
 import { ExchangeService } from 'src/exchange/exchange.service';
+import type { ExchangeName } from 'src/exchange/exchange.service';
 import { NotificationGateway } from 'src/notification/notification.gateway';
 
 export interface SymbolSignal {
@@ -107,7 +108,9 @@ export class MarketScannerService {
   }
 
   private logWithContext(message: string) {
-    this.logger.log(`[${this.currentExchange}] [${this.currentStrategy}] ${message}`);
+    this.logger.log(
+      `[${this.currentExchange}] [${this.currentStrategy}] ${message}`,
+    );
   }
 
   private async getKlines(
@@ -117,7 +120,9 @@ export class MarketScannerService {
     endTime: number,
     limit?: number,
   ) {
-    this.logWithContext(`🌐 [${this.currentExchange}] [${this.currentStrategy}] ${symbol} ${interval} ${new Date(startTime).toISOString()} -> ${new Date(endTime).toISOString()}`);
+    this.logWithContext(
+      `🌐 [${this.currentExchange}] [${this.currentStrategy}] ${symbol} ${interval} ${new Date(startTime).toISOString()} -> ${new Date(endTime).toISOString()}`,
+    );
     return this.exchangeService.getKlines(
       symbol,
       interval,
@@ -252,71 +257,50 @@ export class MarketScannerService {
     }
 
     let breakoutDay: number | null = null;
-    let wasAbove: boolean | null = null;
 
-    for (let i = emaValues.length - LOOKBACK; i < emaValues.length - 3; i++) {
+    for (let i = closePrices.length - LOOKBACK; i < closePrices.length; i++) {
       const ema = emaValues[i];
       if (!ema) continue;
       const price = closePrices[i];
-      const dist = (price - ema) / ema;
+      const distance = (price - ema) / ema;
 
-      if (Math.abs(dist) > BREAKOUT_THRESHOLD) {
-        wasAbove = dist > 0;
+      if (Math.abs(distance) > BREAKOUT_THRESHOLD) {
         breakoutDay = i;
         break;
       }
     }
 
-    if (breakoutDay === null || wasAbove === null) {
+    if (breakoutDay === null) {
       return { maReapproach: null, breakoutDay: null, currentDistance: null };
     }
 
-    const recentPrices = closePrices.slice(breakoutDay);
-    const recentEma = emaValues.slice(breakoutDay);
-    let crossedBack = false;
+    const isAboveEma = currentPrice > currentEma;
+    const priceAtBreakout = closePrices[breakoutDay];
+    const emaAtBreakout = emaValues[breakoutDay];
 
-    for (let i = 1; i < recentPrices.length; i++) {
-      const price = recentPrices[i];
-      const ema = recentEma[i];
-      if (!ema) continue;
-      const prevPrice = recentPrices[i - 1];
-      const prevEma = recentEma[i - 1];
-      if (!prevEma) continue;
-
-      if (wasAbove && prevPrice < prevEma && price >= ema * 0.98) {
-        crossedBack = true;
-        break;
-      }
-      if (!wasAbove && prevPrice > prevEma && price <= ema * 1.02) {
-        crossedBack = true;
-        break;
-      }
+    if (!emaAtBreakout) {
+      return { maReapproach: null, breakoutDay: null, currentDistance: null };
     }
 
-    if (!crossedBack) {
-      return { maReapproach: null, breakoutDay, currentDistance: null };
-    }
+    const wasAboveAtBreakout = priceAtBreakout > emaAtBreakout;
 
-    if (wasAbove && currentDistance < 0) {
-      return { maReapproach: null, breakoutDay, currentDistance: null };
-    }
-    if (!wasAbove && currentDistance > 0) {
-      return { maReapproach: null, breakoutDay, currentDistance: null };
-    }
-
-    if (wasAbove) {
+    if (isAboveEma && !wasAboveAtBreakout) {
       return {
         maReapproach: 'BULLISH_REAPPROACH',
         breakoutDay,
         currentDistance: currentDistance * 100,
       };
-    } else {
+    }
+
+    if (!isAboveEma && wasAboveAtBreakout) {
       return {
         maReapproach: 'BEARISH_REAPPROACH',
         breakoutDay,
         currentDistance: currentDistance * 100,
       };
     }
+
+    return { maReapproach: null, breakoutDay: null, currentDistance: null };
   }
 
   private async getMovingAverages(symbol: string): Promise<{
@@ -646,7 +630,9 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting full market scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
@@ -663,7 +649,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getMovingAverages(symbol),
           ])
             .then(([analysis, mas]) => {
@@ -707,7 +698,9 @@ export class MarketScannerService {
     const allRanked = [...allResults].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Scan complete: ${longs.length} LONGs, ${shorts.length} SHORTs in ${duration}ms`);
+    this.logWithContext(
+      `Scan complete: ${longs.length} LONGs, ${shorts.length} SHORTs in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -727,12 +720,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting reliable market scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for reliable signals...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for reliable signals...`,
+    );
 
     const allResults: SymbolSignal[] = [];
     const endTime = Date.now();
@@ -744,7 +741,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getMovingAverages(symbol),
           ])
             .then(([analysis, mas]) => {
@@ -766,9 +768,7 @@ export class MarketScannerService {
                 maSignal: mas.maSignal,
               };
 
-              if (
-                !this.isSignalReliable(analysis, mas, tf1h)
-              ) {
+              if (!this.isSignalReliable(analysis, mas, tf1h)) {
                 return null;
               }
 
@@ -796,7 +796,9 @@ export class MarketScannerService {
     const allRanked = [...allResults].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Reliable scan complete: ${longs.length} LONGs, ${shorts.length} SHORTs in ${duration}ms`);
+    this.logWithContext(
+      `Reliable scan complete: ${longs.length} LONGs, ${shorts.length} SHORTs in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -809,15 +811,23 @@ export class MarketScannerService {
   }
 
   private isSignalReliable(
-    analysis: { timeframes: Array<{ timeframe: string; score: number; volumeRatio?: number; signal: string }>; finalSignal: string; confidence: number },
+    analysis: {
+      timeframes: Array<{
+        timeframe: string;
+        score: number;
+        volumeRatio?: number;
+        signal: string;
+      }>;
+      finalSignal: string;
+      confidence: number;
+    },
     mas: { maSignal: 'ABOVE' | 'BELOW' | 'NEUTRAL' },
     tf1h: { volumeRatio?: number } | undefined,
   ): boolean {
     const { maSignal } = mas;
 
     const isLongSignal =
-      analysis.finalSignal === 'LONG' ||
-      analysis.finalSignal === 'STRONG_LONG';
+      analysis.finalSignal === 'LONG' || analysis.finalSignal === 'STRONG_LONG';
 
     const isShortSignal =
       analysis.finalSignal === 'SHORT' ||
@@ -831,9 +841,7 @@ export class MarketScannerService {
       return false;
     }
 
-    if (
-      analysis.confidence < 50
-    ) {
+    if (analysis.confidence < 50) {
       return false;
     }
 
@@ -869,12 +877,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting fake signal scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for fake signals...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for fake signals...`,
+    );
 
     const endTime = Date.now();
     const analysisStart = endTime - 24 * 60 * 60 * 1000;
@@ -900,7 +912,9 @@ export class MarketScannerService {
     risks.sort((a, b) => b.fakeSignalProbability - a.fakeSignalProbability);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Fake signal scan complete: ${risks.length} risks found in ${duration}ms`);
+    this.logWithContext(
+      `Fake signal scan complete: ${risks.length} risks found in ${duration}ms`,
+    );
 
     return {
       risks: risks.slice(0, limit),
@@ -917,12 +931,21 @@ export class MarketScannerService {
   ): Promise<FakeSignalRisk | null> {
     try {
       const [analysis, klines] = await Promise.all([
-        this.marketSignalService.analyzeSymbol(symbol, startTime, endTime, this.currentExchange),
+        this.marketSignalService.analyzeSymbol(
+          symbol,
+          startTime,
+          endTime,
+          this.currentExchange,
+        ),
         this.getKlines(symbol, '1h', startTime, endTime),
       ]);
 
-      const isLong = analysis.finalSignal === 'LONG' || analysis.finalSignal === 'STRONG_LONG';
-      const isShort = analysis.finalSignal === 'SHORT' || analysis.finalSignal === 'STRONG_SHORT';
+      const isLong =
+        analysis.finalSignal === 'LONG' ||
+        analysis.finalSignal === 'STRONG_LONG';
+      const isShort =
+        analysis.finalSignal === 'SHORT' ||
+        analysis.finalSignal === 'STRONG_SHORT';
 
       if (!isLong && !isShort) {
         return null;
@@ -932,12 +955,14 @@ export class MarketScannerService {
         return null;
       }
 
-      const closes = klines.map((k) => parseFloat(k[4] as string));
-      const volumes = klines.map((k) => parseFloat(k[5] as string));
+      const closes = klines.map((k) => parseFloat(k[4]));
+      const volumes = klines.map((k) => parseFloat(k[5]));
 
       const currentPrice = closes[closes.length - 1];
       const ema50 = this.calculateEMA(closes, 50);
-      const priceVsEma50 = ema50 ? ((currentPrice - ema50) / ema50) * 100 : null;
+      const priceVsEma50 = ema50
+        ? ((currentPrice - ema50) / ema50) * 100
+        : null;
       const rsi = this.calculateRSI(closes, 14);
       const volumeRatio = this.calculateVolumeRatio(volumes, 20);
       const momentum = this.calculateMomentum(closes, 6);
@@ -987,11 +1012,15 @@ export class MarketScannerService {
     return 100 - 100 / (1 + rs);
   }
 
-  private calculateVolumeRatio(volumes: number[], lookback: number): number | null {
+  private calculateVolumeRatio(
+    volumes: number[],
+    lookback: number,
+  ): number | null {
     if (volumes.length < lookback + 1) return null;
 
     const recentVolume = volumes[volumes.length - 1];
-    const averageVolume = volumes.slice(-lookback, -1).reduce((sum, v) => sum + v, 0) / lookback;
+    const averageVolume =
+      volumes.slice(-lookback, -1).reduce((sum, v) => sum + v, 0) / lookback;
 
     if (averageVolume === 0) return null;
 
@@ -1085,7 +1114,9 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting daily pullback scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
@@ -1103,7 +1134,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getPullbackData(symbol),
           ])
             .then(([analysis, pullback]) => {
@@ -1154,7 +1190,9 @@ export class MarketScannerService {
     const all = [...allPullbacks].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Pullback scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`);
+    this.logWithContext(
+      `Pullback scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -1181,7 +1219,9 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting daily reapproach scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
@@ -1247,7 +1287,9 @@ export class MarketScannerService {
     const all = [...allReapproach].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Reapproach scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`);
+    this.logWithContext(
+      `Reapproach scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -1481,12 +1523,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting 4H pullback scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for 4h pullbacks...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for 4h pullbacks...`,
+    );
 
     const allPullbacks: PullbackSignal[] = [];
     const endTime = Date.now();
@@ -1498,7 +1544,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getPullbackData4h(symbol),
           ])
             .then(([analysis, pullback]) => {
@@ -1541,7 +1592,9 @@ export class MarketScannerService {
     const all = [...allPullbacks].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`4h pullback scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`);
+    this.logWithContext(
+      `4h pullback scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -1697,12 +1750,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting 4H reapproach scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for 4h reapproach...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for 4h reapproach...`,
+    );
 
     const allReapproach: ReapproachSignal[] = [];
     const endTime = Date.now();
@@ -1714,7 +1771,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getReapproachData4h(symbol),
           ])
             .then(([analysis, reapproach]) => {
@@ -1756,7 +1818,9 @@ export class MarketScannerService {
     const all = [...allReapproach].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`4h reapproach scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`);
+    this.logWithContext(
+      `4h reapproach scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -1776,12 +1840,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting weekly pullback scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for weekly pullbacks...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for weekly pullbacks...`,
+    );
 
     const allPullbacks: PullbackSignal[] = [];
     const endTime = Date.now();
@@ -1793,7 +1861,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getPullbackDataWeekly(symbol),
           ])
             .then(([analysis, pullback]) => {
@@ -1834,7 +1907,9 @@ export class MarketScannerService {
     const all = [...allPullbacks].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Weekly pullback scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`);
+    this.logWithContext(
+      `Weekly pullback scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -1861,7 +1936,9 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting weekly reapproach scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
@@ -1876,7 +1953,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getReapproachDataWeekly(symbol),
           ])
             .then(([analysis, reapproach]) => {
@@ -1918,7 +2000,9 @@ export class MarketScannerService {
     const all = [...allReapproach].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Weekly reapproach scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`);
+    this.logWithContext(
+      `Weekly reapproach scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -1948,12 +2032,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting weekly above EMA50 scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for weekly above EMA50...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for weekly above EMA50...`,
+    );
 
     const results: Array<{
       symbol: string;
@@ -1991,7 +2079,9 @@ export class MarketScannerService {
     results.sort((a, b) => (b.priceVsEma50 ?? 0) - (a.priceVsEma50 ?? 0));
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Weekly above EMA50 scan complete: ${results.length} symbols found in ${duration}ms`);
+    this.logWithContext(
+      `Weekly above EMA50 scan complete: ${results.length} symbols found in ${duration}ms`,
+    );
 
     return {
       symbols: results.slice(0, limit),
@@ -2066,12 +2156,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting weekly above EMA21 scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for weekly above EMA21...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for weekly above EMA21...`,
+    );
 
     const results: Array<{
       symbol: string;
@@ -2107,7 +2201,9 @@ export class MarketScannerService {
     results.sort((a, b) => (b.priceVsEma21 ?? 0) - (a.priceVsEma21 ?? 0));
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Weekly above EMA21 scan complete: ${results.length} symbols found in ${duration}ms`);
+    this.logWithContext(
+      `Weekly above EMA21 scan complete: ${results.length} symbols found in ${duration}ms`,
+    );
 
     return {
       symbols: results.slice(0, limit),
@@ -2141,12 +2237,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting daily EMA50 long signal scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for daily above EMA50 with long conditions...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for daily above EMA50 with long conditions...`,
+    );
 
     const results: Array<{
       symbol: string;
@@ -2169,7 +2269,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getMovingAverages(symbol),
           ])
             .then(([analysis, mas]) => {
@@ -2210,7 +2315,9 @@ export class MarketScannerService {
     results.sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Daily above EMA50 with long scan complete: ${results.length} symbols found in ${duration}ms`);
+    this.logWithContext(
+      `Daily above EMA50 with long scan complete: ${results.length} symbols found in ${duration}ms`,
+    );
 
     return {
       symbols: results.slice(0, limit),
@@ -2244,12 +2351,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting weekly EMA50 long signal scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for weekly above EMA50 with long conditions...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for weekly above EMA50 with long conditions...`,
+    );
 
     const results: Array<{
       symbol: string;
@@ -2272,7 +2383,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getWeeklyAboveEma50(symbol),
           ])
             .then(([analysis, weeklyEma]) => {
@@ -2311,7 +2427,9 @@ export class MarketScannerService {
     results.sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Weekly above EMA50 with long scan complete: ${results.length} symbols found in ${duration}ms`);
+    this.logWithContext(
+      `Weekly above EMA50 with long scan complete: ${results.length} symbols found in ${duration}ms`,
+    );
 
     return {
       symbols: results.slice(0, limit),
@@ -2439,12 +2557,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting monthly pullback scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for monthly pullbacks...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for monthly pullbacks...`,
+    );
 
     const allPullbacks: PullbackSignal[] = [];
     const endTime = Date.now();
@@ -2456,7 +2578,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getPullbackDataMonthly(symbol),
           ])
             .then(([analysis, pullback]) => {
@@ -2499,7 +2626,9 @@ export class MarketScannerService {
     const all = [...allPullbacks].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Monthly pullback scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`);
+    this.logWithContext(
+      `Monthly pullback scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -2655,12 +2784,16 @@ export class MarketScannerService {
     const startTime = Date.now();
     this.logWithContext('Starting monthly reapproach scan...');
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for monthly reapproach...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for monthly reapproach...`,
+    );
 
     const allReapproach: ReapproachSignal[] = [];
     const endTime = Date.now();
@@ -2672,7 +2805,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getReapproachDataMonthly(symbol),
           ])
             .then(([analysis, reapproach]) => {
@@ -2714,7 +2852,9 @@ export class MarketScannerService {
     const all = [...allReapproach].sort((a, b) => b.score - a.score);
 
     const duration = Date.now() - startTime;
-    this.logWithContext(`Monthly reapproach scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`);
+    this.logWithContext(
+      `Monthly reapproach scan complete: ${longs.length} bullish, ${shorts.length} bearish in ${duration}ms`,
+    );
 
     return {
       longs,
@@ -2731,16 +2871,22 @@ export class MarketScannerService {
     exchange: string = 'BINANCE',
     interval: '1d' | '4h' | '1w' = '1d',
   ): Promise<PullbackResult> {
-    this.setExchange(exchange).setStrategy(`EMA21_PULLBACK_${interval.toUpperCase()}`);
+    this.setExchange(exchange).setStrategy(
+      `EMA21_PULLBACK_${interval.toUpperCase()}`,
+    );
     const startTime = Date.now();
     this.logWithContext(`Starting EMA21 ${interval} pullback scan...`);
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for EMA21 ${interval} pullbacks...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for EMA21 ${interval} pullbacks...`,
+    );
 
     const allPullbacks: PullbackSignal[] = [];
     const endTime = Date.now();
@@ -2759,7 +2905,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getPullbackDataGeneric(symbol, interval, 21),
           ])
             .then(([analysis, pullback]) => {
@@ -2836,24 +2987,28 @@ export class MarketScannerService {
     duration: number;
     timestamp: string;
   }> {
-    this.setExchange(exchange).setStrategy(`EMA21_REAPPROACH_${interval.toUpperCase()}`);
+    this.setExchange(exchange).setStrategy(
+      `EMA21_REAPPROACH_${interval.toUpperCase()}`,
+    );
     const startTime = Date.now();
     this.logWithContext(`Starting EMA21 ${interval} reapproach scan...`);
 
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+      this.currentExchange as ExchangeName,
+    );
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
-    this.logWithContext(`Scanning ${symbols.length} symbols for EMA21 ${interval} reapproach...`);
+    this.logWithContext(
+      `Scanning ${symbols.length} symbols for EMA21 ${interval} reapproach...`,
+    );
 
     const allReapproach: ReapproachSignal[] = [];
     const endTime = Date.now();
     const analysisStart =
       endTime -
-      (interval === '1w'
-        ? 7 * 24 * 60 * 60 * 1000
-        : 24 * 60 * 60 * 1000);
+      (interval === '1w' ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000);
 
     const batchSize = 5;
     let processedCount = 0;
@@ -2862,7 +3017,12 @@ export class MarketScannerService {
       const batchResults = await Promise.all(
         batch.map((symbol) =>
           Promise.all([
-            this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, this.currentExchange),
+            this.marketSignalService.analyzeSymbol(
+              symbol,
+              analysisStart,
+              endTime,
+              this.currentExchange,
+            ),
             this.getReapproachDataGeneric(symbol, interval, 21),
           ])
             .then(([analysis, reapproach]) => {
@@ -2924,5 +3084,247 @@ export class MarketScannerService {
       duration,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  async exportScan(
+    type: string,
+    exchange: string = 'BINANCE',
+    limit = 50,
+    interval?: string,
+  ): Promise<string> {
+    this.setExchange(exchange);
+    let result: any;
+    const tf = interval === '4h' || interval === '1w' ? interval : '1d';
+
+    switch (type) {
+      case 'signals':
+        result = await this.scanMarket(limit, exchange);
+        break;
+      case 'reliable':
+        result = await this.scanMarketReliable(limit, exchange);
+        break;
+      case 'pullbacks':
+        result = await this.scanForPullbacks(limit, exchange);
+        break;
+      case 'reapproach':
+        result = await this.scanForReapproach(limit, exchange);
+        break;
+      case 'weekly-pullbacks':
+        result = await this.scanForPullbacksWeekly(limit, exchange);
+        break;
+      case 'weekly-reapproach':
+        result = await this.scanForReapproachWeekly(limit, exchange);
+        break;
+      case '4h-pullbacks':
+        result = await this.scanForPullbacks4h(limit, exchange);
+        break;
+      case '4h-reapproach':
+        result = await this.scanForReapproach4h(limit, exchange);
+        break;
+      case 'monthly-pullbacks':
+        result = await this.scanForPullbacksMonthly(limit, exchange);
+        break;
+      case 'monthly-reapproach':
+        result = await this.scanForReapproachMonthly(limit, exchange);
+        break;
+      case 'weekly-above-ema50':
+        result = await this.scanForWeeklyAboveEma50(limit, exchange);
+        break;
+      case 'weekly-above-ema21':
+        result = await this.scanForWeeklyAboveEma21(limit, exchange);
+        break;
+      case 'daily-above-ema50-long':
+        result = await this.scanForDailyAboveEma50WithLong(limit, exchange);
+        break;
+      case 'weekly-above-ema50-long':
+        result = await this.scanForWeeklyAboveEma50WithLong(limit, exchange);
+        break;
+      case 'pullbacks-ema21':
+        result = await this.scanForPullbacksEma21(limit, exchange, tf);
+        break;
+      case 'reapproach-ema21':
+        result = await this.scanForReapproachEma21(limit, exchange, tf);
+        break;
+      default:
+        throw new Error(`Unknown scan type: ${type}`);
+    }
+
+    return this.convertToCsv(result, type);
+  }
+
+  private convertToCsv(result: any, type: string): string {
+    const rows: string[][] = [];
+    const timestamp = new Date().toISOString();
+
+    if (type === 'signals' || type === 'reliable') {
+      rows.push([
+        'symbol',
+        'signal',
+        'score',
+        'confidence',
+        'priceChange',
+        'oiChange',
+        'fundingRate',
+        'sma9',
+        'sma21',
+        'sma50',
+        'priceVsSma50',
+        'maSignal',
+      ]);
+      for (const item of [...result.longs, ...result.shorts]) {
+        rows.push([
+          item.symbol,
+          item.signal,
+          String(item.score),
+          String(item.confidence),
+          `${item.priceChange.toFixed(2)}%`,
+          `${item.oiChange.toFixed(2)}%`,
+          `${item.fundingRate.toFixed(4)}%`,
+          item.sma9?.toFixed(2) ?? '',
+          item.sma21?.toFixed(2) ?? '',
+          item.sma50?.toFixed(2) ?? '',
+          item.priceVsSma50?.toFixed(1) ?? '',
+          item.maSignal ?? '',
+        ]);
+      }
+    } else if (
+      type === 'pullbacks' ||
+      type === 'weekly-pullbacks' ||
+      type === '4h-pullbacks' ||
+      type === 'monthly-pullbacks'
+    ) {
+      rows.push([
+        'symbol',
+        'direction',
+        'touches',
+        'priceChange',
+        'priceVsEma50',
+        'currentPrice',
+        'ema50',
+      ]);
+      for (const item of [...result.longs, ...result.shorts]) {
+        rows.push([
+          item.symbol,
+          item.maPullback,
+          String(item.maPullbackTouches),
+          `${item.priceChange.toFixed(2)}%`,
+          item.priceVsEma50 !== null ? `${item.priceVsEma50.toFixed(1)}%` : '',
+          item.currentPrice?.toFixed(4) ?? '',
+          item.ema50?.toFixed(4) ?? '',
+        ]);
+      }
+    } else if (
+      type === 'reapproach' ||
+      type === 'weekly-reapproach' ||
+      type === '4h-reapproach' ||
+      type === 'monthly-reapproach'
+    ) {
+      rows.push([
+        'symbol',
+        'direction',
+        'currentDistance',
+        'priceChange',
+        'oiChange',
+        'currentPrice',
+        'ema50',
+      ]);
+      for (const item of [...result.longs, ...result.shorts]) {
+        rows.push([
+          item.symbol,
+          item.maReapproach,
+          item.currentDistance !== null
+            ? `${item.currentDistance.toFixed(1)}%`
+            : '',
+          `${item.priceChange.toFixed(2)}%`,
+          `${item.oiChange.toFixed(2)}%`,
+          item.currentPrice?.toFixed(4) ?? '',
+          item.ema50?.toFixed(4) ?? '',
+        ]);
+      }
+    } else if (type === 'weekly-above-ema50' || type === 'weekly-above-ema21') {
+      rows.push(['symbol', 'priceVsEma50', 'currentPrice', 'ema50']);
+      for (const item of result.symbols ?? []) {
+        rows.push([
+          item.symbol,
+          item.priceVsEma50 !== null ? `${item.priceVsEma50.toFixed(1)}%` : '',
+          item.currentPrice?.toFixed(4) ?? '',
+          item.ema50?.toFixed(4) ?? '',
+        ]);
+      }
+    } else if (
+      type === 'daily-above-ema50-long' ||
+      type === 'weekly-above-ema50-long'
+    ) {
+      rows.push([
+        'symbol',
+        'signal',
+        'score',
+        'confidence',
+        'priceChange',
+        'oiChange',
+        'fundingRate',
+        'priceVsEma50',
+        'currentPrice',
+        'ema50',
+      ]);
+      for (const item of result.symbols ?? []) {
+        rows.push([
+          item.symbol,
+          item.signal,
+          String(item.score),
+          String(item.confidence),
+          `${item.priceChange.toFixed(2)}%`,
+          `${item.oiChange.toFixed(2)}%`,
+          `${item.fundingRate.toFixed(4)}%`,
+          item.priceVsEma50 !== null ? `${item.priceVsEma50.toFixed(1)}%` : '',
+          item.currentPrice?.toFixed(4) ?? '',
+          item.ema50?.toFixed(4) ?? '',
+        ]);
+      }
+    } else if (type === 'pullbacks-ema21' || type === 'reapproach-ema21') {
+      rows.push([
+        'symbol',
+        'direction',
+        'touches',
+        'currentDistance',
+        'priceChange',
+        'oiChange',
+        'currentPrice',
+        'ema21',
+      ]);
+      for (const item of [...result.longs, ...result.shorts]) {
+        rows.push([
+          item.symbol,
+          type.includes('pullback') ? item.maPullback : item.maReapproach,
+          type.includes('pullback') ? String(item.maPullbackTouches) : '',
+          type.includes('reapproach')
+            ? item.currentDistance !== null
+              ? `${item.currentDistance.toFixed(1)}%`
+              : ''
+            : '',
+          `${item.priceChange.toFixed(2)}%`,
+          `${item.oiChange.toFixed(2)}%`,
+          item.currentPrice?.toFixed(4) ?? '',
+          item.ema50?.toFixed(4) ?? '',
+        ]);
+      }
+    }
+
+    rows.push([
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      `Exported: ${timestamp}`,
+      '',
+      '',
+      '',
+      '',
+      '',
+    ]);
+
+    return rows.map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
   }
 }

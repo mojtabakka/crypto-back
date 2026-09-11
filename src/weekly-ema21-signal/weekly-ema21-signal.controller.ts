@@ -1,8 +1,6 @@
 import { Controller, Get, Post, Query } from '@nestjs/common';
 import { WeeklyEma21SignalService } from './weekly-ema21-signal.service';
-import type {
-  Ema21Strength,
-} from './entities/weekly-ema21-signal.entity';
+import type { Ema21Strength } from './entities/weekly-ema21-signal.entity';
 
 @Controller('weekly-ema21-signals')
 export class WeeklyEma21SignalController {
@@ -31,8 +29,7 @@ export class WeeklyEma21SignalController {
       !['JUST_ABOVE', 'ABOVE', 'STRONG', 'EXTREME'].includes(strength)
     ) {
       return {
-        error:
-          'Invalid strength. Use JUST_ABOVE, ABOVE, STRONG, or EXTREME',
+        error: 'Invalid strength. Use JUST_ABOVE, ABOVE, STRONG, or EXTREME',
       };
     }
     return this.weeklyEma21SignalService.getSignalsByStrength(

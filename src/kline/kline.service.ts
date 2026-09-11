@@ -67,7 +67,11 @@ export class KlineService {
     return oldest ? oldest.openTime : null;
   }
 
-  async saveKlines(symbol: string, interval: string, klines: BinanceKline[]): Promise<void> {
+  async saveKlines(
+    symbol: string,
+    interval: string,
+    klines: BinanceKline[],
+  ): Promise<void> {
     if (klines.length === 0) return;
 
     const entities = klines.map((k) => {
@@ -88,7 +92,11 @@ export class KlineService {
       return entity;
     });
 
-    await this.klineRepository.upsert(entities, ['symbol', 'interval', 'openTime']);
+    await this.klineRepository.upsert(entities, [
+      'symbol',
+      'interval',
+      'openTime',
+    ]);
   }
 
   async getMissingRanges(

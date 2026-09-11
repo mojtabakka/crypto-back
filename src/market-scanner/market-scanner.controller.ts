@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Header, Query } from '@nestjs/common';
 import { MarketScannerService } from './market-scanner.service';
 
 @Controller('market-scanner')
@@ -168,10 +168,7 @@ export class MarketScannerController {
     @Query('interval') interval?: string,
   ) {
     const parsedLimit = parseInt(limit ?? '30', 10);
-    const tf = (interval === '4h' || interval === '1w' ? interval : '1d') as
-      | '1d'
-      | '4h'
-      | '1w';
+    const tf = interval === '4h' || interval === '1w' ? interval : '1d';
     return this.marketScannerService.scanForPullbacksEma21(
       parsedLimit,
       exchange ?? 'BINANCE',
@@ -186,10 +183,7 @@ export class MarketScannerController {
     @Query('interval') interval?: string,
   ) {
     const parsedLimit = parseInt(limit ?? '30', 10);
-    const tf = (interval === '4h' || interval === '1w' ? interval : '1d') as
-      | '1d'
-      | '4h'
-      | '1w';
+    const tf = interval === '4h' || interval === '1w' ? interval : '1d';
     return this.marketScannerService.scanForReapproachEma21(
       parsedLimit,
       exchange ?? 'BINANCE',
@@ -219,5 +213,24 @@ export class MarketScannerController {
       parsedLimit,
       exchange ?? 'BINANCE',
     );
+  }
+
+  @Get('export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="scan-results.csv"')
+  async exportScan(
+    @Query('type') type = 'signals',
+    @Query('exchange') exchange?: string,
+    @Query('limit') limit?: string,
+    @Query('interval') interval?: string,
+  ) {
+    const parsedLimit = parseInt(limit ?? '50', 10);
+    const csv = await this.marketScannerService.exportScan(
+      type,
+      exchange ?? 'BINANCE',
+      parsedLimit,
+      interval,
+    );
+    return csv;
   }
 }

@@ -164,7 +164,9 @@ export class MarketSignalService {
       return result;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Market signal analysis skipped for ${symbol}: ${errorMsg}`);
+      this.logger.warn(
+        `Market signal analysis skipped for ${symbol}: ${errorMsg}`,
+      );
 
       return {
         timeframes: [],

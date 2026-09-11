@@ -3,6 +3,7 @@ import { MarketSignalService } from './market-signal.service';
 import { BinanceService } from 'src/binance/binance.service';
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 import { RedisService } from 'src/redis/redis.service';
+import { ExchangeService } from 'src/exchange/exchange.service';
 import type { MarketSnapshot } from 'src/market/signals/market-snapshot';
 
 describe('MarketSignalService', () => {
@@ -12,6 +13,15 @@ describe('MarketSignalService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MarketSignalService,
+        {
+          provide: ExchangeService,
+          useValue: {
+            getFuturesKlines: jest.fn(),
+            getOpenInterest: jest.fn(),
+            getFundingRate: jest.fn(),
+            getLiquidationOrders: jest.fn(),
+          },
+        },
         {
           provide: BinanceService,
           useValue: {
@@ -225,8 +235,15 @@ describe('MarketSignalService', () => {
       expect(result.signals.length).toBeGreaterThan(0);
     });
 
-    it('should throw when no snapshots provided', () => {
-      expect(() => service.analyze([])).toThrow('No market snapshots provided');
+    it('should return neutral result when no snapshots provided', () => {
+      const result = service.analyze([]);
+
+      expect(result.timeframes).toEqual([]);
+      expect(result.finalScore).toBe(0);
+      expect(result.finalSignal).toBe('NEUTRAL');
+      expect(result.confidence).toBe(0);
+      expect(result.signals).toEqual([]);
+      expect(result.primarySignal).toBeNull();
     });
   });
 

@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
 
-import { ExchangeService, ExchangeName } from 'src/exchange/exchange.service';
+import {
+  ExchangeService,
+  normalizeExchangeName,
+} from 'src/exchange/exchange.service';
+import type { ExchangeName } from 'src/exchange/exchange.service';
 import { FuturesSymbolsService } from 'src/futures-symbols/futures-symbols.service';
 import { NotificationGateway } from 'src/notification/notification.gateway';
 import { DumpAlertEntity, DumpSeverity } from './entities/dump-alert.entity';
@@ -36,13 +40,15 @@ export class DumpDetectorService {
   ) {}
 
   async scanExchange(exchange: ExchangeName): Promise<DumpAlertEntity[]> {
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const normalizedExchange = normalizeExchangeName(exchange);
+    const symbolsData =
+      await this.futuresSymbolsService.getStoredSymbols(normalizedExchange);
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
     this.logger.log(
-      `[${exchange}] Scanning ${symbols.length} symbols for dumps...`,
+      `[${normalizedExchange}] Scanning ${symbols.length} symbols for dumps...`,
     );
 
     const alerts: DumpAlertEntity[] = [];
@@ -51,7 +57,9 @@ export class DumpDetectorService {
     for (let i = 0; i < symbols.length; i += batchSize) {
       const batch = symbols.slice(i, i + batchSize);
       const results = await Promise.allSettled(
-        batch.map((symbol) => this.analyzeSymbolForDump(symbol, exchange)),
+        batch.map((symbol) =>
+          this.analyzeSymbolForDump(symbol, normalizedExchange),
+        ),
       );
 
       for (const result of results) {
@@ -74,44 +82,49 @@ export class DumpDetectorService {
   ): Promise<DumpAlertEntity | null> {
     const endTime = Date.now();
 
-    const [
-      klines15m,
-      klines1h,
-      klines4h,
-      oiData,
-      fundingData,
-    ] = await Promise.all([
-      this.exchangeService.getFuturesKlines(
-        symbol,
-        '15m',
-        endTime - 24 * 60 * 60 * 1000,
-        endTime,
-        exchange,
-        100,
-      ),
-      this.exchangeService.getFuturesKlines(
-        symbol,
-        '1h',
-        endTime - 7 * 24 * 60 * 60 * 1000,
-        endTime,
-        exchange,
-        170,
-      ),
-      this.exchangeService.getFuturesKlines(
-        symbol,
-        '4h',
-        endTime - 30 * 24 * 60 * 60 * 1000,
-        endTime,
-        exchange,
-        200,
-      ),
-      this.exchangeService
-        .getOpenInterest(symbol, endTime - 24 * 60 * 60 * 1000, endTime, exchange)
-        .catch(() => []),
-      this.exchangeService
-        .getFundingRate(symbol, endTime - 7 * 24 * 60 * 60 * 1000, endTime, exchange)
-        .catch(() => []),
-    ]);
+    const [klines15m, klines1h, klines4h, oiData, fundingData] =
+      await Promise.all([
+        this.exchangeService.getFuturesKlines(
+          symbol,
+          '15m',
+          endTime - 24 * 60 * 60 * 1000,
+          endTime,
+          exchange,
+          100,
+        ),
+        this.exchangeService.getFuturesKlines(
+          symbol,
+          '1h',
+          endTime - 7 * 24 * 60 * 60 * 1000,
+          endTime,
+          exchange,
+          170,
+        ),
+        this.exchangeService.getFuturesKlines(
+          symbol,
+          '4h',
+          endTime - 30 * 24 * 60 * 60 * 1000,
+          endTime,
+          exchange,
+          200,
+        ),
+        this.exchangeService
+          .getOpenInterest(
+            symbol,
+            endTime - 24 * 60 * 60 * 1000,
+            endTime,
+            exchange,
+          )
+          .catch(() => []),
+        this.exchangeService
+          .getFundingRate(
+            symbol,
+            endTime - 7 * 24 * 60 * 60 * 1000,
+            endTime,
+            exchange,
+          )
+          .catch(() => []),
+      ]);
 
     if (klines1h.length < 24) return null;
 
@@ -224,17 +237,19 @@ export class DumpDetectorService {
     const avgVolume7d =
       klines1h.slice(-168).reduce((sum, k) => sum + parseFloat(k[5]), 0) / 168;
     const volumeRatioVsAvg =
-      avgVolume7d > 0
-        ? (currentVolume1h / avgVolume7d) * 100
-        : 100;
+      avgVolume7d > 0 ? (currentVolume1h / avgVolume7d) * 100 : 100;
 
     const oiChange1h =
       oiData.length >= 2
         ? ((parseFloat(oiData[oiData.length - 1].sumOpenInterest) -
-            parseFloat(oiData[Math.max(0, oiData.length - 2)].sumOpenInterest)) /
+            parseFloat(
+              oiData[Math.max(0, oiData.length - 2)].sumOpenInterest,
+            )) /
             Math.max(
               1,
-              parseFloat(oiData[Math.max(0, oiData.length - 2)].sumOpenInterest),
+              parseFloat(
+                oiData[Math.max(0, oiData.length - 2)].sumOpenInterest,
+              ),
             )) *
           100
         : 0;
@@ -358,10 +373,7 @@ export class DumpDetectorService {
     return null;
   }
 
-  private getReasons(
-    ind: DumpIndicators,
-    score: number,
-  ): string[] {
+  private getReasons(ind: DumpIndicators, score: number): string[] {
     const reasons: string[] = [];
 
     if (ind.priceChange1h < -3) {
@@ -490,7 +502,7 @@ export class DumpDetectorService {
     const where: any = { dumpScore: MoreThan(minScore) };
 
     if (exchange) {
-      where.exchange = exchange;
+      where.exchange = normalizeExchangeName(exchange);
     }
 
     return this.dumpAlertRepository.find({
@@ -500,9 +512,7 @@ export class DumpDetectorService {
     });
   }
 
-  async getActiveAlerts(
-    exchange?: ExchangeName,
-  ): Promise<DumpAlertEntity[]> {
+  async getActiveAlerts(exchange?: ExchangeName): Promise<DumpAlertEntity[]> {
     const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
 
     const where: any = {
@@ -510,7 +520,7 @@ export class DumpDetectorService {
     };
 
     if (exchange) {
-      where.exchange = exchange;
+      where.exchange = normalizeExchangeName(exchange);
     }
 
     return this.dumpAlertRepository.find({

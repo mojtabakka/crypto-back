@@ -37,7 +37,9 @@ export class BingxService {
         endTime,
         limit,
       };
-      this.logger.log(`🌐 [BINGX] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`);
+      this.logger.log(
+        `🌐 [BINGX] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`,
+      );
 
       const response = await axios.get(url, {
         params,
@@ -54,22 +56,27 @@ export class BingxService {
         quoteVolume: string;
       }>;
 
-      return items.map((item) => [
-        item.time,
-        item.open,
-        item.high,
-        item.low,
-        item.close,
-        item.volume,
-        item.time + this.getIntervalMs(interval) - 1,
-        item.quoteVolume,
-        0,
-        '0',
-        '0',
-        '0',
-      ] as BinanceKline);
+      return items.map(
+        (item) =>
+          [
+            item.time,
+            item.open,
+            item.high,
+            item.low,
+            item.close,
+            item.volume,
+            item.time + this.getIntervalMs(interval) - 1,
+            item.quoteVolume,
+            0,
+            '0',
+            '0',
+            '0',
+          ] as BinanceKline,
+      );
     } catch (error) {
-      this.logger.error(`BingX klines error: ${error instanceof Error ? error.message : 'Unknown'}`);
+      this.logger.error(
+        `BingX klines error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      );
       return [];
     }
   }
@@ -80,10 +87,13 @@ export class BingxService {
     endTime: number,
   ): Promise<BinanceOpenInterest[]> {
     try {
-      const response = await axios.get(`${this.baseUrl}/openApi/swap/v2/quote/openInterest`, {
-        params: { symbol },
-        timeout: 10000,
-      });
+      const response = await axios.get(
+        `${this.baseUrl}/openApi/swap/v2/quote/openInterest`,
+        {
+          params: { symbol },
+          timeout: 10000,
+        },
+      );
 
       const data = response.data?.data ?? {};
       return [
@@ -105,12 +115,18 @@ export class BingxService {
     endTime: number,
   ): Promise<BinanceFundingRate[]> {
     try {
-      const response = await axios.get(`${this.baseUrl}/openApi/swap/v2/quote/fundingRate`, {
-        params: { symbol, startTime, endTime },
-        timeout: 10000,
-      });
+      const response = await axios.get(
+        `${this.baseUrl}/openApi/swap/v2/quote/fundingRate`,
+        {
+          params: { symbol, startTime, endTime },
+          timeout: 10000,
+        },
+      );
 
-      const items = (response.data?.data ?? []) as Array<{ time: number; fundingRate: string }>;
+      const items = (response.data?.data ?? []) as Array<{
+        time: number;
+        fundingRate: string;
+      }>;
       return items.map((item) => ({
         symbol,
         fundingRate: item.fundingRate,

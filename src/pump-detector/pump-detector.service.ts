@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
 
-import { ExchangeService, ExchangeName } from 'src/exchange/exchange.service';
+import {
+  ExchangeService,
+  normalizeExchangeName,
+} from 'src/exchange/exchange.service';
+import type { ExchangeName } from 'src/exchange/exchange.service';
 import { FuturesSymbolsService } from 'src/futures-symbols/futures-symbols.service';
 import { NotificationGateway } from 'src/notification/notification.gateway';
 import { PumpAlertEntity, PumpSeverity } from './entities/pump-alert.entity';
@@ -36,13 +40,15 @@ export class PumpDetectorService {
   ) {}
 
   async scanExchange(exchange: ExchangeName): Promise<PumpAlertEntity[]> {
-    const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+    const normalizedExchange = normalizeExchangeName(exchange);
+    const symbolsData =
+      await this.futuresSymbolsService.getStoredSymbols(normalizedExchange);
     const symbols = symbolsData.symbols
       .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
       .map((s) => s.symbol);
 
     this.logger.log(
-      `[${exchange}] Scanning ${symbols.length} symbols for pumps...`,
+      `[${normalizedExchange}] Scanning ${symbols.length} symbols for pumps...`,
     );
 
     const alerts: PumpAlertEntity[] = [];
@@ -51,7 +57,9 @@ export class PumpDetectorService {
     for (let i = 0; i < symbols.length; i += batchSize) {
       const batch = symbols.slice(i, i + batchSize);
       const results = await Promise.allSettled(
-        batch.map((symbol) => this.analyzeSymbolForPump(symbol, exchange)),
+        batch.map((symbol) =>
+          this.analyzeSymbolForPump(symbol, normalizedExchange),
+        ),
       );
 
       for (const result of results) {
@@ -74,44 +82,49 @@ export class PumpDetectorService {
   ): Promise<PumpAlertEntity | null> {
     const endTime = Date.now();
 
-    const [
-      klines15m,
-      klines1h,
-      klines4h,
-      oiData,
-      fundingData,
-    ] = await Promise.all([
-      this.exchangeService.getFuturesKlines(
-        symbol,
-        '15m',
-        endTime - 24 * 60 * 60 * 1000,
-        endTime,
-        exchange,
-        100,
-      ),
-      this.exchangeService.getFuturesKlines(
-        symbol,
-        '1h',
-        endTime - 7 * 24 * 60 * 60 * 1000,
-        endTime,
-        exchange,
-        170,
-      ),
-      this.exchangeService.getFuturesKlines(
-        symbol,
-        '4h',
-        endTime - 30 * 24 * 60 * 60 * 1000,
-        endTime,
-        exchange,
-        200,
-      ),
-      this.exchangeService
-        .getOpenInterest(symbol, endTime - 24 * 60 * 60 * 1000, endTime, exchange)
-        .catch(() => []),
-      this.exchangeService
-        .getFundingRate(symbol, endTime - 7 * 24 * 60 * 60 * 1000, endTime, exchange)
-        .catch(() => []),
-    ]);
+    const [klines15m, klines1h, klines4h, oiData, fundingData] =
+      await Promise.all([
+        this.exchangeService.getFuturesKlines(
+          symbol,
+          '15m',
+          endTime - 24 * 60 * 60 * 1000,
+          endTime,
+          exchange,
+          100,
+        ),
+        this.exchangeService.getFuturesKlines(
+          symbol,
+          '1h',
+          endTime - 7 * 24 * 60 * 60 * 1000,
+          endTime,
+          exchange,
+          170,
+        ),
+        this.exchangeService.getFuturesKlines(
+          symbol,
+          '4h',
+          endTime - 30 * 24 * 60 * 60 * 1000,
+          endTime,
+          exchange,
+          200,
+        ),
+        this.exchangeService
+          .getOpenInterest(
+            symbol,
+            endTime - 24 * 60 * 60 * 1000,
+            endTime,
+            exchange,
+          )
+          .catch(() => []),
+        this.exchangeService
+          .getFundingRate(
+            symbol,
+            endTime - 7 * 24 * 60 * 60 * 1000,
+            endTime,
+            exchange,
+          )
+          .catch(() => []),
+      ]);
 
     if (klines1h.length < 24) return null;
 
@@ -186,89 +199,91 @@ export class PumpDetectorService {
   }
 
   private calculateIndicators(
-  klines15m: any[],
-  klines1h: any[],
-  klines4h: any[],
-  oiData: any[],
-  fundingData: any[],
-): PumpIndicators {
-  const currentPrice = parseFloat(klines1h[klines1h.length - 1][4]);
-  const price1hAgo = parseFloat(
-    klines1h[Math.max(0, klines1h.length - 2)][4],
-  );
-  const price4hAgo = parseFloat(
-    klines1h[Math.max(0, klines1h.length - 5)][4],
-  );
-  const price24hAgo = parseFloat(
-    klines1h[Math.max(0, klines1h.length - 25)][4],
-  );
+    klines15m: any[],
+    klines1h: any[],
+    klines4h: any[],
+    oiData: any[],
+    fundingData: any[],
+  ): PumpIndicators {
+    const currentPrice = parseFloat(klines1h[klines1h.length - 1][4]);
+    const price1hAgo = parseFloat(
+      klines1h[Math.max(0, klines1h.length - 2)][4],
+    );
+    const price4hAgo = parseFloat(
+      klines1h[Math.max(0, klines1h.length - 5)][4],
+    );
+    const price24hAgo = parseFloat(
+      klines1h[Math.max(0, klines1h.length - 25)][4],
+    );
 
-  const priceChange1h = ((currentPrice - price1hAgo) / price1hAgo) * 100;
-  const priceChange4h = ((currentPrice - price4hAgo) / price4hAgo) * 100;
-  const priceChange24h = ((currentPrice - price24hAgo) / price24hAgo) * 100;
+    const priceChange1h = ((currentPrice - price1hAgo) / price1hAgo) * 100;
+    const priceChange4h = ((currentPrice - price4hAgo) / price4hAgo) * 100;
+    const priceChange24h = ((currentPrice - price24hAgo) / price24hAgo) * 100;
 
-  const currentVolume1h = this.sumVolume(klines1h.slice(-1));
-  const previousVolume1h = this.sumVolume(klines1h.slice(-2, -1));
-  const volumeChange1h =
-    previousVolume1h > 0
-      ? ((currentVolume1h - previousVolume1h) / previousVolume1h) * 100
-      : 0;
+    const currentVolume1h = this.sumVolume(klines1h.slice(-1));
+    const previousVolume1h = this.sumVolume(klines1h.slice(-2, -1));
+    const volumeChange1h =
+      previousVolume1h > 0
+        ? ((currentVolume1h - previousVolume1h) / previousVolume1h) * 100
+        : 0;
 
-  const currentVolume24h = this.sumVolume(klines1h.slice(-24));
-  const previousVolume24h = this.sumVolume(klines1h.slice(-48, -24));
-  const volumeChange24h =
-    previousVolume24h > 0
-      ? ((currentVolume24h - previousVolume24h) / previousVolume24h) * 100
-      : 0;
+    const currentVolume24h = this.sumVolume(klines1h.slice(-24));
+    const previousVolume24h = this.sumVolume(klines1h.slice(-48, -24));
+    const volumeChange24h =
+      previousVolume24h > 0
+        ? ((currentVolume24h - previousVolume24h) / previousVolume24h) * 100
+        : 0;
 
-  const avgVolume7d =
-    klines1h.slice(-168).reduce((sum, k) => sum + parseFloat(k[5]), 0) / 168;
-  const volumeRatioVsAvg =
-    avgVolume7d > 0
-      ? (currentVolume1h / avgVolume7d) * 100
-      : 100;
+    const avgVolume7d =
+      klines1h.slice(-168).reduce((sum, k) => sum + parseFloat(k[5]), 0) / 168;
+    const volumeRatioVsAvg =
+      avgVolume7d > 0 ? (currentVolume1h / avgVolume7d) * 100 : 100;
 
-  const oiChange1h =
-    oiData.length >= 2
-      ? ((parseFloat(oiData[oiData.length - 1].sumOpenInterest) -
-          parseFloat(oiData[Math.max(0, oiData.length - 2)].sumOpenInterest)) /
-          Math.max(
-            1,
-            parseFloat(oiData[Math.max(0, oiData.length - 2)].sumOpenInterest),
-          )) *
-        100
-      : 0;
+    const oiChange1h =
+      oiData.length >= 2
+        ? ((parseFloat(oiData[oiData.length - 1].sumOpenInterest) -
+            parseFloat(
+              oiData[Math.max(0, oiData.length - 2)].sumOpenInterest,
+            )) /
+            Math.max(
+              1,
+              parseFloat(
+                oiData[Math.max(0, oiData.length - 2)].sumOpenInterest,
+              ),
+            )) *
+          100
+        : 0;
 
-  const fundingRate =
-    fundingData.length > 0
-      ? parseFloat(fundingData[fundingData.length - 1].fundingRate)
-      : 0;
+    const fundingRate =
+      fundingData.length > 0
+        ? parseFloat(fundingData[fundingData.length - 1].fundingRate)
+        : 0;
 
-  const closes = klines1h.map((k) => parseFloat(k[4]));
-  const rsi14 = this.calculateRSI(closes, 14);
+    const closes = klines1h.map((k) => parseFloat(k[4]));
+    const rsi14 = this.calculateRSI(closes, 14);
 
-  const bollingerPosition = this.calculateBollingerPosition(closes, 20, 2);
+    const bollingerPosition = this.calculateBollingerPosition(closes, 20, 2);
 
-  const consecutiveGreenCandles = this.countConsecutiveGreen(klines1h);
+    const consecutiveGreenCandles = this.countConsecutiveGreen(klines1h);
 
-  const largeBuyRatio = this.calculateLargeBuyRatio(klines15m);
+    const largeBuyRatio = this.calculateLargeBuyRatio(klines15m);
 
-  return {
-    priceChange1h,
-    priceChange4h,
-    priceChange24h,
-    volumeChange1h,
-    volumeChange24h,
-    volumeRatioVsAvg,
-    oiChange1h,
-    fundingRate,
-    rsi14,
-    bollingerPosition,
-    consecutiveGreenCandles,
-    largeBuyRatio,
-    currentPrice,
-  };
-}
+    return {
+      priceChange1h,
+      priceChange4h,
+      priceChange24h,
+      volumeChange1h,
+      volumeChange24h,
+      volumeRatioVsAvg,
+      oiChange1h,
+      fundingRate,
+      rsi14,
+      bollingerPosition,
+      consecutiveGreenCandles,
+      largeBuyRatio,
+      currentPrice,
+    };
+  }
 
   private calculatePumpScore(ind: PumpIndicators): number {
     let score = 0;
@@ -371,10 +386,7 @@ export class PumpDetectorService {
     return null;
   }
 
-  private getReasons(
-    ind: PumpIndicators,
-    score: number,
-  ): string[] {
+  private getReasons(ind: PumpIndicators, score: number): string[] {
     const reasons: string[] = [];
 
     if (ind.priceChange1h > 3) {
@@ -398,9 +410,7 @@ export class PumpDetectorService {
       reasons.push(`💼 OI up ${ind.oiChange1h.toFixed(2)}% in 1h`);
     }
     if (ind.fundingRate > 0.0005) {
-      reasons.push(
-        `💰 High funding: ${(ind.fundingRate * 100).toFixed(3)}%`,
-      );
+      reasons.push(`💰 High funding: ${(ind.fundingRate * 100).toFixed(3)}%`);
     }
     if (ind.rsi14 > 70) {
       reasons.push(`⚠️ RSI overbought: ${ind.rsi14.toFixed(1)}`);
@@ -409,7 +419,9 @@ export class PumpDetectorService {
       reasons.push('⚠️ Price above upper Bollinger Band');
     }
     if (ind.consecutiveGreenCandles >= 4) {
-      reasons.push(`🟢 ${ind.consecutiveGreenCandles} consecutive green candles`);
+      reasons.push(
+        `🟢 ${ind.consecutiveGreenCandles} consecutive green candles`,
+      );
     }
     if (ind.largeBuyRatio > 60) {
       reasons.push(`🟢 Buy pressure: ${ind.largeBuyRatio.toFixed(0)}%`);
@@ -503,7 +515,7 @@ export class PumpDetectorService {
     const where: any = { pumpScore: MoreThan(minScore) };
 
     if (exchange) {
-      where.exchange = exchange;
+      where.exchange = normalizeExchangeName(exchange);
     }
 
     return this.pumpAlertRepository.find({
@@ -513,9 +525,7 @@ export class PumpDetectorService {
     });
   }
 
-  async getActiveAlerts(
-    exchange?: ExchangeName,
-  ): Promise<PumpAlertEntity[]> {
+  async getActiveAlerts(exchange?: ExchangeName): Promise<PumpAlertEntity[]> {
     const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
 
     const where: any = {
@@ -523,7 +533,7 @@ export class PumpDetectorService {
     };
 
     if (exchange) {
-      where.exchange = exchange;
+      where.exchange = normalizeExchangeName(exchange);
     }
 
     return this.pumpAlertRepository.find({

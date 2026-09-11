@@ -40,7 +40,9 @@ export class OkxService {
     endTime: number,
     limit = 100,
   ): Promise<BinanceKline[]> {
-    this.logger.log(`OKX getFuturesKlines: ${symbol} ${interval} ${new Date(startTime).toISOString()} -> ${new Date(endTime).toISOString()}`);
+    this.logger.log(
+      `OKX getFuturesKlines: ${symbol} ${interval} ${new Date(startTime).toISOString()} -> ${new Date(endTime).toISOString()}`,
+    );
 
     const cacheKey = `okx:klines:${symbol}:${interval}:${startTime}:${endTime}`;
 
@@ -54,7 +56,7 @@ export class OkxService {
     let currentEndTime = endTime;
 
     const okxInterval = this.mapInterval(interval);
-    const instId = symbol.replace('USDT', '-USDT-SWAP');
+    const instId = symbol.replace('USDT', '-USDT');
 
     while (currentEndTime > startTime) {
       try {
@@ -65,7 +67,9 @@ export class OkxService {
           before: currentEndTime,
           limit: Math.min(limit, 300),
         };
-        this.logger.log(`🌐 [OKX] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`);
+        this.logger.log(
+          `🌐 [OKX] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`,
+        );
 
         const response = await axios.get(url, {
           params,
@@ -102,14 +106,18 @@ export class OkxService {
 
         if (data.length < limit) break;
       } catch (error) {
-        this.logger.warn(`OKX klines fetch failed for ${symbol}: ${error instanceof Error ? error.message : 'Unknown'}`);
+        this.logger.warn(
+          `OKX klines fetch failed for ${symbol}: ${error instanceof Error ? error.message : 'Unknown'}`,
+        );
         break;
       }
     }
 
     allKlines.sort((a, b) => a[0] - b[0]);
 
-    this.logger.log(`OKX getFuturesKlines: ${allKlines.length} klines for ${symbol}`);
+    this.logger.log(
+      `OKX getFuturesKlines: ${allKlines.length} klines for ${symbol}`,
+    );
     await this.redisService.setJson(cacheKey, allKlines, this.KLINES_CACHE_TTL);
     return allKlines;
   }
@@ -128,7 +136,7 @@ export class OkxService {
     }
 
     const allData: BinanceOpenInterest[] = [];
-    const instId = symbol.replace('USDT', '-USDT-SWAP');
+    const instId = symbol.replace('USDT', '-USDT');
 
     try {
       const response = await axios.get(
@@ -156,7 +164,9 @@ export class OkxService {
         }
       }
     } catch (error) {
-      this.logger.warn(`OKX open interest fetch failed for ${symbol}: ${error}`);
+      this.logger.warn(
+        `OKX open interest fetch failed for ${symbol}: ${error}`,
+      );
     }
 
     await this.redisService.setJson(cacheKey, allData, this.OI_CACHE_TTL);
@@ -169,7 +179,7 @@ export class OkxService {
     endTime: number,
   ): Promise<BinanceFundingRate[]> {
     const apiData: BinanceFundingRate[] = [];
-    const instId = symbol.replace('USDT', '-USDT-SWAP');
+    const instId = symbol.replace('USDT', '-USDT');
 
     try {
       const response = await axios.get(
@@ -196,7 +206,11 @@ export class OkxService {
           apiData.push(fundingRate);
 
           const cacheKey = `okx:funding:${symbol}:${item.fundingTime}`;
-          await this.redisService.setJson(cacheKey, fundingRate, this.FUNDING_CACHE_TTL);
+          await this.redisService.setJson(
+            cacheKey,
+            fundingRate,
+            this.FUNDING_CACHE_TTL,
+          );
         }
       }
     } catch (error) {
@@ -236,7 +250,7 @@ export class OkxService {
     endTime: number,
   ): Promise<BinanceLiquidationOrder[]> {
     try {
-      const instId = symbol.replace('USDT', '-USDT-SWAP');
+      const instId = symbol.replace('USDT', '-USDT');
 
       const response = await axios.get(
         `${this.baseUrl}/api/v5/public/liquidation-orders`,

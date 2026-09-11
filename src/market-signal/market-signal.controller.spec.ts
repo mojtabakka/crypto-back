@@ -4,6 +4,7 @@ import { MarketSignalService } from './market-signal.service';
 import { BinanceService } from 'src/binance/binance.service';
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 import { RedisService } from 'src/redis/redis.service';
+import { ExchangeService } from 'src/exchange/exchange.service';
 
 describe('MarketSignalController', () => {
   let controller: MarketSignalController;
@@ -13,6 +14,15 @@ describe('MarketSignalController', () => {
       controllers: [MarketSignalController],
       providers: [
         MarketSignalService,
+        {
+          provide: ExchangeService,
+          useValue: {
+            getFuturesKlines: jest.fn(),
+            getOpenInterest: jest.fn(),
+            getFundingRate: jest.fn(),
+            getLiquidationOrders: jest.fn(),
+          },
+        },
         {
           provide: BinanceService,
           useValue: {

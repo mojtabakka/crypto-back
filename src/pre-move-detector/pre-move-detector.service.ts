@@ -12,6 +12,12 @@ import { RedisService } from 'src/redis/redis.service';
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 import { NotificationGateway } from 'src/notification/notification.gateway';
 import {
+  ExchangeService,
+  normalizeExchangeName,
+} from 'src/exchange/exchange.service';
+import type { ExchangeName } from 'src/exchange/exchange.service';
+import { FuturesSymbolsService } from 'src/futures-symbols/futures-symbols.service';
+import {
   PreMoveSignalEntity,
   PreMoveType,
   PreMoveStrength,
@@ -35,7 +41,10 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
   private readonly COOLDOWN_MS = 3 * 60 * 1000;
 
   private readonly symbolCooldowns = new Map<string, number>();
-  private readonly symbolPrices = new Map<string, { price: number; ts: number }>();
+  private readonly symbolPrices = new Map<
+    string,
+    { price: number; ts: number }
+  >();
 
   private readonly recentAlerts$ = new Subject<PreMoveSignalEntity>();
   private subs = new Subscription();
@@ -46,17 +55,21 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     private readonly redisService: RedisService,
     private readonly liquidationService: LiquidationService,
     private readonly notificationGateway: NotificationGateway,
+    private readonly exchangeService: ExchangeService,
+    private readonly futuresSymbolsService: FuturesSymbolsService,
   ) {}
 
   onModuleInit() {
-    this.logger.log('Pre-move detector started — scanning liquidations every 60s');
+    this.logger.log(
+      'Pre-move detector started — scanning liquidations every 60s',
+    );
     const interval = setInterval(() => {
-      void this.scanAllSymbols();
+      void this.scanAllSymbols('BINANCE');
     }, 60 * 1000);
 
     this.subs.add({
       unsubscribe: () => clearInterval(interval),
-    } as Subscription);
+    });
   }
 
   onModuleDestroy() {
@@ -66,25 +79,40 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
   /**
    * Scan all symbols that have recent liquidation data in Redis
    */
-  async scanAllSymbols(): Promise<PreMoveSignalEntity[]> {
-    const symbols = await this.getActiveSymbols();
+  async scanAllSymbols(
+    exchange: string = 'BINANCE',
+  ): Promise<PreMoveSignalEntity[]> {
+    const normalizedExchange = normalizeExchangeName(exchange);
+    const symbols = await this.getActiveSymbols(normalizedExchange);
     const now = Date.now();
 
     this.logger.debug(`Pre-move scan: ${symbols.length} active symbols`);
 
     if (symbols.length === 0) {
-      this.logger.log('No liquidation data — generating demo signals for UI testing');
-      return this.generateDemoSignals();
+      this.logger.log('No recent liquidation data found');
+      return [];
     }
 
     const newSignals: PreMoveSignalEntity[] = [];
 
     for (const symbol of symbols) {
       try {
-        const shortSignal = await this.analyzeWindow(symbol, 'SHORT', this.WINDOWS_MS.SHORT, now);
+        const shortSignal = await this.analyzeWindow(
+          symbol,
+          'SHORT',
+          this.WINDOWS_MS.SHORT,
+          now,
+          normalizedExchange,
+        );
         if (shortSignal) newSignals.push(shortSignal);
 
-        const mediumSignal = await this.analyzeWindow(symbol, 'MEDIUM', this.WINDOWS_MS.MEDIUM, now);
+        const mediumSignal = await this.analyzeWindow(
+          symbol,
+          'MEDIUM',
+          this.WINDOWS_MS.MEDIUM,
+          now,
+          normalizedExchange,
+        );
         if (mediumSignal) newSignals.push(mediumSignal);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'unknown';
@@ -93,8 +121,8 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (newSignals.length === 0) {
-      this.logger.log('No real signals detected — generating demo signals for UI testing');
-      return this.generateDemoSignals();
+      this.logger.log('No real pre-move signals detected');
+      return [];
     }
 
     if (newSignals.length > 0) {
@@ -108,20 +136,25 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
    * Debug method to inspect liquidation data
    */
   async debugStatus() {
-    const symbols = await this.getActiveSymbols();
+    const symbols = await this.getActiveSymbols('BINANCE');
     const now = Date.now();
     const debug: any[] = [];
 
     for (const symbol of symbols.slice(0, 30)) {
-      const liqs = await this.fetchLiquidations(symbol, now - 30 * 60 * 1000);
+      const liqs = await this.fetchLiquidations(
+        symbol,
+        now - 30 * 60 * 1000,
+        'BINANCE',
+      );
       const longLiqs = liqs.filter((l) => l.side === 'LONG');
       const shortLiqs = liqs.filter((l) => l.side === 'SHORT');
       const longValue = longLiqs.reduce((sum, l) => sum + l.value, 0);
       const shortValue = shortLiqs.reduce((sum, l) => sum + l.value, 0);
       const total = longValue + shortValue;
-      const ratio = longValue > 0 && shortValue > 0
-        ? Math.max(longValue, shortValue) / Math.min(longValue, shortValue)
-        : 0;
+      const ratio =
+        longValue > 0 && shortValue > 0
+          ? Math.max(longValue, shortValue) / Math.min(longValue, shortValue)
+          : 0;
 
       debug.push({
         symbol,
@@ -142,108 +175,6 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Generate demo signals for top symbols when no liquidation data is available.
-   * This allows users to see the UI working even when the market is calm.
-   */
-  private async generateDemoSignals(): Promise<PreMoveSignalEntity[]> {
-    this.logger.log('No real liquidation data found — generating demo signals for top symbols');
-
-    const topSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
-    const now = Date.now();
-
-    const demoConfigs: Array<{
-      symbol: string;
-      type: 'PUMP' | 'DUMP';
-      strength: PreMoveStrength;
-      confidence: number;
-      longValue: number;
-      shortValue: number;
-      price: number;
-      longCount: number;
-      shortCount: number;
-    }> = [
-      {
-        symbol: 'BTCUSDT',
-        type: 'DUMP',
-        strength: 'STRONG',
-        confidence: 72,
-        longValue: 2500000,
-        shortValue: 180000,
-        price: 65000,
-        longCount: 45,
-        shortCount: 4,
-      },
-      {
-        symbol: 'ETHUSDT',
-        type: 'PUMP',
-        strength: 'MODERATE',
-        confidence: 58,
-        longValue: 320000,
-        shortValue: 1800000,
-        price: 3200,
-        longCount: 8,
-        shortCount: 28,
-      },
-      {
-        symbol: 'SOLUSDT',
-        type: 'DUMP',
-        strength: 'EXTREME',
-        confidence: 88,
-        longValue: 4800000,
-        shortValue: 95000,
-        price: 145,
-        longCount: 120,
-        shortCount: 2,
-      },
-      {
-        symbol: 'BNBUSDT',
-        type: 'PUMP',
-        strength: 'WEAK',
-        confidence: 42,
-        longValue: 95000,
-        shortValue: 380000,
-        price: 580,
-        longCount: 3,
-        shortCount: 12,
-      },
-    ];
-
-    const saved: PreMoveSignalEntity[] = [];
-
-    for (const config of demoConfigs) {
-      const signal = new PreMoveSignalEntity();
-      signal.symbol = config.symbol;
-      signal.type = config.type;
-      signal.strength = config.strength;
-      signal.confidence = config.confidence;
-      signal.currentPrice = config.price;
-      signal.longLiqValue = config.longValue;
-      signal.shortLiqValue = config.shortValue;
-      signal.longLiqCount = config.longCount;
-      signal.shortLiqCount = config.shortCount;
-      signal.imbalanceRatio =
-        config.shortValue > 0 ? config.longValue / config.shortValue : 13.9;
-      signal.windowMs = 5 * 60 * 1000;
-      signal.detectedAt = now;
-
-      const dominantValue = config.type === 'DUMP' ? config.longValue : config.shortValue;
-      const dominantCount = config.type === 'DUMP' ? config.longCount : config.shortCount;
-
-      signal.reasons = JSON.stringify([
-        '🧪 Demo signal (no live liquidation data — market is calm)',
-        `⚠️ ${config.type === 'PUMP' ? 'Pre-pump signal' : 'Pre-dump signal'} (SHORT window)`,
-        `💥 ${dominantCount} ${config.type === 'DUMP' ? 'LONG' : 'SHORT'} liquidations worth $${(dominantValue / 1000).toFixed(0)}k`,
-        `⚖️ Imbalance ratio: ${(config.longValue / Math.max(config.shortValue, 1)).toFixed(1)}x`,
-      ]);
-
-      const savedSignal = await this.signalRepository.save(signal);
-      saved.push(savedSignal);
-    }
-
-    return saved;
-  }
-
-  /**
    * Analyze a single symbol within a given time window
    */
   private async analyzeWindow(
@@ -251,11 +182,12 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     windowLabel: 'SHORT' | 'MEDIUM',
     windowMs: number,
     now: number,
+    exchange: ExchangeName,
   ): Promise<PreMoveSignalEntity | null> {
     if (this.isOnCooldown(symbol, now)) return null;
 
     const start = now - windowMs;
-    const liquidations = await this.fetchLiquidations(symbol, start);
+    const liquidations = await this.fetchLiquidations(symbol, start, exchange);
 
     if (liquidations.length === 0) return null;
 
@@ -265,13 +197,17 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     const longLiqValue = longLiqs.reduce((sum, l) => sum + l.value, 0);
     const shortLiqValue = shortLiqs.reduce((sum, l) => sum + l.value, 0);
 
-    if (longLiqValue < this.MIN_LIQ_VALUE_USD && shortLiqValue < this.MIN_LIQ_VALUE_USD) {
+    if (
+      longLiqValue < this.MIN_LIQ_VALUE_USD &&
+      shortLiqValue < this.MIN_LIQ_VALUE_USD
+    ) {
       return null;
     }
 
     const maxSide = Math.max(longLiqValue, shortLiqValue);
     const minSide = Math.min(longLiqValue, shortLiqValue);
-    const imbalanceRatio = minSide > 0 ? maxSide / minSide : maxSide > 0 ? Infinity : 0;
+    const imbalanceRatio =
+      minSide > 0 ? maxSide / minSide : maxSide > 0 ? Infinity : 0;
 
     if (imbalanceRatio < this.MIN_IMBALANCE_RATIO) {
       return null;
@@ -311,6 +247,7 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
 
     const signal = new PreMoveSignalEntity();
     signal.symbol = symbol;
+    signal.exchange = exchange;
     signal.type = type;
     signal.strength = strength;
     signal.confidence = confidence;
@@ -358,15 +295,58 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
   private async fetchLiquidations(
     symbol: string,
     startTime: number,
-  ): Promise<Array<{ time: number; side: 'LONG' | 'SHORT'; value: number; price: number }>> {
+    exchange: ExchangeName,
+  ): Promise<
+    Array<{
+      time: number;
+      side: 'LONG' | 'SHORT';
+      value: number;
+      price: number;
+    }>
+  > {
+    if (exchange !== 'BINANCE') {
+      const orders = await this.exchangeService.getLiquidationOrders(
+        symbol,
+        startTime,
+        Date.now(),
+        exchange,
+      );
+
+      return orders
+        .filter((order) => order.lastUpdateTime >= startTime)
+        .map((order) => {
+          const price = Number(order.averagePrice || order.price || 0);
+          const quantity = Number(order.executedQty || order.origQty || 0);
+          const side: 'LONG' | 'SHORT' =
+            order.side === 'SELL' ? 'LONG' : 'SHORT';
+          return {
+            time: order.lastUpdateTime,
+            side,
+            value: price * quantity,
+            price,
+          };
+        })
+        .filter((item) => item.value > 0);
+    }
+
     const key = `${REDIS_LIQUIDATION_KEY_PREFIX}${symbol}`;
     const raw = await this.redisService.lrange(key, 0, 500);
 
-    const result: Array<{ time: number; side: 'LONG' | 'SHORT'; value: number; price: number }> = [];
+    const result: Array<{
+      time: number;
+      side: 'LONG' | 'SHORT';
+      value: number;
+      price: number;
+    }> = [];
 
     for (const r of raw) {
       try {
-        const parsed = JSON.parse(r) as { time: number; side: 'LONG' | 'SHORT'; value: number; price: number };
+        const parsed = JSON.parse(r) as {
+          time: number;
+          side: 'LONG' | 'SHORT';
+          value: number;
+          price: number;
+        };
         if (parsed.time >= startTime) {
           result.push(parsed);
         }
@@ -378,9 +358,22 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
-  private async getActiveSymbols(): Promise<string[]> {
+  private async getActiveSymbols(exchange: ExchangeName): Promise<string[]> {
+    if (exchange !== 'BINANCE') {
+      const symbolsData =
+        await this.futuresSymbolsService.getStoredSymbols(exchange);
+      return symbolsData.symbols
+        .filter(
+          (symbol) =>
+            symbol.status === 'TRADING' && symbol.quoteAsset === 'USDT',
+        )
+        .map((symbol) => symbol.symbol);
+    }
+
     try {
-      const keys = await this.redisService.scanKeys(`${REDIS_LIQUIDATION_KEY_PREFIX}*`);
+      const keys = await this.redisService.scanKeys(
+        `${REDIS_LIQUIDATION_KEY_PREFIX}*`,
+      );
       const symbols = keys
         .filter((k) => k.startsWith(REDIS_LIQUIDATION_KEY_PREFIX))
         .map((k) => k.replace(REDIS_LIQUIDATION_KEY_PREFIX, ''));
@@ -389,13 +382,15 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
       const active: string[] = [];
 
       for (const symbol of symbols) {
-        const liqs = await this.fetchLiquidations(symbol, oneHourAgo);
+        const liqs = await this.fetchLiquidations(symbol, oneHourAgo, exchange);
         if (liqs.length > 0) active.push(symbol);
       }
 
       return active;
     } catch (err) {
-      this.logger.warn(`Failed to fetch active symbols: ${(err as Error).message}`);
+      this.logger.warn(
+        `Failed to fetch active symbols: ${(err as Error).message}`,
+      );
       return [];
     }
   }
@@ -408,7 +403,14 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     shortLiqCount: number;
     windowMs: number;
   }): number {
-    const { longLiqValue, shortLiqValue, imbalanceRatio, longLiqCount, shortLiqCount, windowMs } = params;
+    const {
+      longLiqValue,
+      shortLiqValue,
+      imbalanceRatio,
+      longLiqCount,
+      shortLiqCount,
+      windowMs,
+    } = params;
     const totalValue = longLiqValue + shortLiqValue;
     const totalCount = longLiqCount + shortLiqCount;
 
@@ -467,7 +469,16 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     currentPrice: number | null;
   }): string[] {
     const reasons: string[] = [];
-    const { type, longLiqValue, shortLiqValue, longLiqCount, shortLiqCount, windowLabel, imbalanceRatio, currentPrice } = params;
+    const {
+      type,
+      longLiqValue,
+      shortLiqValue,
+      longLiqCount,
+      shortLiqCount,
+      windowLabel,
+      imbalanceRatio,
+      currentPrice,
+    } = params;
 
     const dominantValue = type === 'DUMP' ? longLiqValue : shortLiqValue;
     const dominantCount = type === 'DUMP' ? longLiqCount : shortLiqCount;
@@ -494,9 +505,13 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (type === 'DUMP') {
-      reasons.push(`📉 Expect downside pressure as forced LONG liquidations fuel selling`);
+      reasons.push(
+        `📉 Expect downside pressure as forced LONG liquidations fuel selling`,
+      );
     } else {
-      reasons.push(`📈 Expect upside squeeze as forced SHORT liquidations fuel buying`);
+      reasons.push(
+        `📈 Expect upside squeeze as forced SHORT liquidations fuel buying`,
+      );
     }
 
     return reasons;
@@ -527,9 +542,13 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     type?: PreMoveType,
     minConfidence = 0,
     limit = 100,
+    exchange: string = 'BINANCE',
   ): Promise<PreMoveSignalEntity[]> {
-    const where: any = { confidence: MoreThan(minConfidence) };
-    if (type) where.type = type;
+    const where = {
+      confidence: MoreThan(minConfidence),
+      exchange: normalizeExchangeName(exchange),
+      ...(type ? { type } : {}),
+    };
 
     return this.signalRepository.find({
       where,
@@ -538,10 +557,16 @@ export class PreMoveDetectorService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async getActiveSignals(type?: PreMoveType): Promise<PreMoveSignalEntity[]> {
+  async getActiveSignals(
+    type?: PreMoveType,
+    exchange: string = 'BINANCE',
+  ): Promise<PreMoveSignalEntity[]> {
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    const where: any = { detectedAt: MoreThan(oneHourAgo) };
-    if (type) where.type = type;
+    const where = {
+      detectedAt: MoreThan(oneHourAgo),
+      exchange: normalizeExchangeName(exchange),
+      ...(type ? { type } : {}),
+    };
 
     return this.signalRepository.find({
       where,

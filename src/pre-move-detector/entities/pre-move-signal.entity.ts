@@ -20,6 +20,10 @@ export class PreMoveSignalEntity {
   @Column({ type: 'varchar', length: 20 })
   symbol: string;
 
+  @Index()
+  @Column({ type: 'varchar', length: 20, default: 'BINANCE' })
+  exchange: string;
+
   @Column({ type: 'varchar', length: 10 })
   type: PreMoveType;
 

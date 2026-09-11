@@ -35,7 +35,11 @@ export class PumpDetectorController {
   @ApiQuery({ name: 'exchange', required: true, type: String })
   async triggerScan(@Query('exchange') exchange: ExchangeName) {
     if (!exchange) {
-      return { message: 'Exchange parameter is required', count: 0, alerts: [] };
+      return {
+        message: 'Exchange parameter is required',
+        count: 0,
+        alerts: [],
+      };
     }
     const alerts = await this.pumpDetectorService.scanExchange(exchange);
     return {

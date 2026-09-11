@@ -7,6 +7,7 @@ import { MarketScannerService } from 'src/market-scanner/market-scanner.service'
 import { MarketSignalService } from 'src/market-signal/market-signal.service';
 import { FuturesSymbolsService } from 'src/futures-symbols/futures-symbols.service';
 import { ExchangeService } from 'src/exchange/exchange.service';
+import type { ExchangeName } from 'src/exchange/exchange.service';
 import {
   LongShortSignalEntity,
   LongShortDirection,
@@ -35,13 +36,16 @@ export class LongShortSignalService implements OnModuleInit {
   }
 
   async scanAndStoreSignals(exchange: string = 'BINANCE') {
+    exchange = this.normalizeExchange(exchange);
     const startTime = Date.now();
     this.logger.log(`[${exchange}] Starting long/short signal scan...`);
 
     try {
       await this.signalRepository.delete({ exchange });
 
-      const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+      const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
+        exchange as ExchangeName,
+      );
       const symbols = symbolsData.symbols
         .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
         .map((s) => s.symbol);
@@ -90,7 +94,9 @@ export class LongShortSignalService implements OnModuleInit {
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`[${exchange}] Long/short signal scan failed: ${errorMessage}`);
+      this.logger.error(
+        `[${exchange}] Long/short signal scan failed: ${errorMessage}`,
+      );
     }
   }
 
@@ -101,7 +107,12 @@ export class LongShortSignalService implements OnModuleInit {
     exchange: string,
   ): Promise<LongShortSignalEntity | null> {
     const [analysis, mas] = await Promise.all([
-      this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime, exchange),
+      this.marketSignalService.analyzeSymbol(
+        symbol,
+        analysisStart,
+        endTime,
+        exchange,
+      ),
       this.getMovingAverages(symbol, exchange),
     ]);
 
@@ -143,7 +154,7 @@ export class LongShortSignalService implements OnModuleInit {
 
   private async getMovingAverages(symbol: string, exchange: string) {
     const endTime = Date.now();
-    const startTime = endTime - 30 * 24 * 60 * 60 * 1000;
+    const startTime = endTime - 60 * 24 * 60 * 60 * 1000;
 
     const klines = await this.exchangeService.getFuturesKlines(
       symbol,
@@ -179,7 +190,7 @@ export class LongShortSignalService implements OnModuleInit {
     totalCount: number;
     exchange: string;
   }> {
-    const ex = exchange ?? 'BINANCE';
+    const ex = this.normalizeExchange(exchange);
     const allSignals = await this.signalRepository.find({
       where: { exchange: ex },
       order: { score: 'DESC' },
@@ -205,14 +216,20 @@ export class LongShortSignalService implements OnModuleInit {
 
   async getLongSignals(exchange?: string): Promise<LongShortSignalEntity[]> {
     return this.signalRepository.find({
-      where: { direction: 'LONG', exchange: exchange ?? 'BINANCE' },
+      where: {
+        direction: 'LONG',
+        exchange: this.normalizeExchange(exchange),
+      },
       order: { score: 'DESC' },
     });
   }
 
   async getShortSignals(exchange?: string): Promise<LongShortSignalEntity[]> {
     return this.signalRepository.find({
-      where: { direction: 'SHORT', exchange: exchange ?? 'BINANCE' },
+      where: {
+        direction: 'SHORT',
+        exchange: this.normalizeExchange(exchange),
+      },
       order: { score: 'DESC' },
     });
   }
@@ -223,13 +240,19 @@ export class LongShortSignalService implements OnModuleInit {
     lastUpdate: Date | null;
     totalCount: number;
   }> {
-    await this.scanAndStoreSignals(exchange);
-    const result = await this.getLatestSignals(exchange);
+    const normalizedExchange = this.normalizeExchange(exchange);
+    await this.scanAndStoreSignals(normalizedExchange);
+    const result = await this.getLatestSignals(normalizedExchange);
     return {
       longs: result.longs,
       shorts: result.shorts,
       lastUpdate: result.lastUpdate,
       totalCount: result.totalCount,
     };
+  }
+
+  private normalizeExchange(exchange?: string): string {
+    const normalized = exchange?.trim().toUpperCase();
+    return normalized === 'MEX' ? 'MEXC' : normalized || 'BINANCE';
   }
 }

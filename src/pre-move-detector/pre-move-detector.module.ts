@@ -8,6 +8,8 @@ import { PreMoveSignalEntity } from './entities/pre-move-signal.entity';
 import { RedisModule } from 'src/redis/redis.module';
 import { NotificationModule } from 'src/notification/notification.module';
 import { LiquidationModule } from 'src/liquidation/liquidation.module';
+import { ExchangeModule } from 'src/exchange/exchange.module';
+import { FuturesSymbolsModule } from 'src/futures-symbols/futures-symbols.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { LiquidationModule } from 'src/liquidation/liquidation.module';
     RedisModule,
     NotificationModule,
     LiquidationModule,
+    ExchangeModule,
+    FuturesSymbolsModule,
   ],
   controllers: [PreMoveDetectorController],
   providers: [PreMoveDetectorService],

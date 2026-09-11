@@ -24,7 +24,10 @@ export class LoggerService {
     search?: string;
   }): Promise<{ entries: LogEntry[]; total: number }> {
     const now = Date.now();
-    if (now - this.lastCacheUpdate > this.CACHE_TTL || this.cache.length === 0) {
+    if (
+      now - this.lastCacheUpdate > this.CACHE_TTL ||
+      this.cache.length === 0
+    ) {
       await this.refreshCache();
     }
 
@@ -54,7 +57,11 @@ export class LoggerService {
     try {
       const today = new Date();
       const dateStr = today.toISOString().slice(0, 10);
-      const logFile = path.join(this.logDir, 'combined', `combined-${dateStr}.log`);
+      const logFile = path.join(
+        this.logDir,
+        'combined',
+        `combined-${dateStr}.log`,
+      );
 
       try {
         const content = await fs.readFile(logFile, 'utf-8');

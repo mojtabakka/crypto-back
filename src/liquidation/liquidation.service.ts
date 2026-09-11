@@ -43,7 +43,9 @@ interface PersistedLiquidation {
 }
 
 @Injectable()
-export class LiquidationService implements OnApplicationBootstrap, OnModuleDestroy {
+export class LiquidationService
+  implements OnApplicationBootstrap, OnModuleDestroy
+{
   private readonly logger = new Logger(LiquidationService.name);
 
   private binanceSocket?: WebSocket;
@@ -61,7 +63,9 @@ export class LiquidationService implements OnApplicationBootstrap, OnModuleDestr
   constructor(private readonly redisService: RedisService) {}
 
   onApplicationBootstrap() {
-    this.logger.log('Starting liquidation WebSockets (Binance + Bybit fallback)...');
+    this.logger.log(
+      'Starting liquidation WebSockets (Binance + Bybit fallback)...',
+    );
     this.connectBinance();
     this.connectBybit();
   }
@@ -74,7 +78,9 @@ export class LiquidationService implements OnApplicationBootstrap, OnModuleDestr
 
   private connectBinance() {
     try {
-      this.binanceSocket = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
+      this.binanceSocket = new WebSocket(
+        'wss://fstream.binance.com/ws/!forceOrder@arr',
+      );
 
       this.binanceSocket.on('open', () => {
         this.binanceConnected = true;
@@ -93,22 +99,30 @@ export class LiquidationService implements OnApplicationBootstrap, OnModuleDestr
 
       this.binanceSocket.on('close', () => {
         this.binanceConnected = false;
-        this.logger.warn('❌ Binance Liquidation WebSocket disconnected (will retry)');
+        this.logger.warn(
+          '❌ Binance Liquidation WebSocket disconnected (will retry)',
+        );
         setTimeout(() => this.connectBinance(), 10000);
       });
 
       this.binanceSocket.on('error', (error) => {
         this.binanceConnected = false;
-        this.logger.warn(`Binance WebSocket error: ${error.message} — Bybit will continue providing data`);
+        this.logger.warn(
+          `Binance WebSocket error: ${error.message} — Bybit will continue providing data`,
+        );
       });
     } catch (err) {
-      this.logger.error(`Failed to connect to Binance: ${(err as Error).message}`);
+      this.logger.error(
+        `Failed to connect to Binance: ${(err as Error).message}`,
+      );
     }
   }
 
   private connectBybit() {
     try {
-      this.bybitSocket = new WebSocket('wss://stream.bybit.com/v5/public/linear');
+      this.bybitSocket = new WebSocket(
+        'wss://stream.bybit.com/v5/public/linear',
+      );
 
       this.bybitSocket.on('open', () => {
         this.bybitConnected = true;
@@ -128,7 +142,9 @@ export class LiquidationService implements OnApplicationBootstrap, OnModuleDestr
 
       this.bybitSocket.on('close', () => {
         this.bybitConnected = false;
-        this.logger.warn('❌ Bybit Liquidation WebSocket disconnected (will retry)');
+        this.logger.warn(
+          '❌ Bybit Liquidation WebSocket disconnected (will retry)',
+        );
         setTimeout(() => this.connectBybit(), 10000);
       });
 
@@ -137,7 +153,9 @@ export class LiquidationService implements OnApplicationBootstrap, OnModuleDestr
         this.logger.warn(`Bybit WebSocket error: ${error.message}`);
       });
     } catch (err) {
-      this.logger.error(`Failed to connect to Bybit: ${(err as Error).message}`);
+      this.logger.error(
+        `Failed to connect to Bybit: ${(err as Error).message}`,
+      );
     }
   }
 
@@ -146,7 +164,11 @@ export class LiquidationService implements OnApplicationBootstrap, OnModuleDestr
 
     const subscribeMsg = {
       op: 'subscribe',
-      args: ['allLiquidation.BTCUSDT', 'allLiquidation.ETHUSDT', 'allLiquidation.SOLUSDT'],
+      args: [
+        'allLiquidation.BTCUSDT',
+        'allLiquidation.ETHUSDT',
+        'allLiquidation.SOLUSDT',
+      ],
     };
 
     this.bybitSocket.send(JSON.stringify(subscribeMsg));
@@ -154,7 +176,9 @@ export class LiquidationService implements OnApplicationBootstrap, OnModuleDestr
 
     if (this.bybitResubscribeTimer) clearTimeout(this.bybitResubscribeTimer);
     this.bybitResubscribeTimer = setTimeout(() => {
-      this.logger.log('Bybit: re-subscribing after 30s to refresh subscription');
+      this.logger.log(
+        'Bybit: re-subscribing after 30s to refresh subscription',
+      );
       this.bybitSocket?.send(JSON.stringify(subscribeMsg));
     }, 30000);
   }
@@ -180,20 +204,27 @@ export class LiquidationService implements OnApplicationBootstrap, OnModuleDestr
       await this.persist(liquidation);
       this.cleanup();
     } catch (err) {
-      this.logger.warn(`Failed to parse Binance liquidation: ${(err as Error).message}`);
+      this.logger.warn(
+        `Failed to parse Binance liquidation: ${(err as Error).message}`,
+      );
     }
   }
 
   private async handleBybitMessage(message: string) {
     try {
-      const parsed = JSON.parse(message) as BybitLiquidationMessage | { op?: string; success?: boolean };
+      const parsed = JSON.parse(message) as
+        BybitLiquidationMessage | { op?: string; success?: boolean };
 
       if ('op' in parsed || 'success' in parsed) {
         return;
       }
 
       const liqMsg = parsed as BybitLiquidationMessage;
-      if (!liqMsg.topic || !liqMsg.topic.startsWith('allLiquidation.') || !liqMsg.data) {
+      if (
+        !liqMsg.topic ||
+        !liqMsg.topic.startsWith('allLiquidation.') ||
+        !liqMsg.data
+      ) {
         return;
       }
 
@@ -215,7 +246,9 @@ export class LiquidationService implements OnApplicationBootstrap, OnModuleDestr
       this.liquidations.push(liquidation);
       await this.persist(liquidation);
     } catch (err) {
-      this.logger.warn(`Failed to parse Bybit liquidation: ${(err as Error).message}`);
+      this.logger.warn(
+        `Failed to parse Bybit liquidation: ${(err as Error).message}`,
+      );
     }
   }
 

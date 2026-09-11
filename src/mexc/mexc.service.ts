@@ -4,6 +4,7 @@ import axios from 'axios';
 import { BinanceKline } from 'src/market/dto/binance-kline.type';
 import { BinanceFundingRate } from 'src/market/types/binance-funding-rate.type';
 import { BinanceOpenInterest } from 'src/market/types/binance-open-interest.type';
+import { BinanceLiquidationOrder } from 'src/market/types/binance-liquidation.type';
 
 @Injectable()
 export class MexcService {
@@ -30,7 +31,7 @@ export class MexcService {
   ): Promise<BinanceKline[]> {
     try {
       const mexcInterval = this.mapInterval(interval);
-      const cleanSymbol = symbol.replace(/USDT$/, '_USDT');
+      const cleanSymbol = this.toMexcSymbol(symbol);
 
       const url = `${this.baseUrl}/api/v1/contract/kline/${cleanSymbol}`;
       const params = {
@@ -38,7 +39,9 @@ export class MexcService {
         start: Math.floor(startTime / 1000),
         end: Math.floor(endTime / 1000),
       };
-      this.logger.log(`🌐 [MEXC] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`);
+      this.logger.log(
+        `🌐 [MEXC] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`,
+      );
 
       const response = await axios.get(url, {
         params,
@@ -74,7 +77,9 @@ export class MexcService {
 
       return klines;
     } catch (error) {
-      this.logger.error(`MEXC klines error: ${error instanceof Error ? error.message : 'Unknown'}`);
+      this.logger.error(
+        `MEXC klines error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      );
       return [];
     }
   }
@@ -85,22 +90,31 @@ export class MexcService {
     endTime: number,
   ): Promise<BinanceOpenInterest[]> {
     try {
-      const cleanSymbol = symbol.replace(/USDT$/, '_USDT');
-      const response = await axios.get(`${this.baseUrl}/api/v1/contract/risk_limit`, {
-        params: { symbol: cleanSymbol },
-        timeout: 10000,
-      });
+      const cleanSymbol = this.toMexcSymbol(symbol);
+      const response = await axios.get(
+        `${this.baseUrl}/api/v1/contract/ticker`,
+        {
+          params: { symbol: cleanSymbol },
+          timeout: 10000,
+        },
+      );
 
-      const data = response.data?.data ?? {};
+      const ticker = response.data?.data ?? {};
+      const holdVol = Number(ticker.holdVol ?? 0);
+      const timestamp = Number(ticker.timestamp || Date.now());
+
       return [
         {
           symbol,
-          sumOpenInterest: String(data?.holdVol ?? 0),
-          sumOpenInterestValue: String(data?.holdAmount ?? 0),
-          timestamp: Date.now(),
+          sumOpenInterest: String(holdVol),
+          sumOpenInterestValue: String(holdVol),
+          timestamp,
         },
       ];
-    } catch {
+    } catch (error) {
+      this.logger.error(
+        `MEXC open interest error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      );
       return [];
     }
   }
@@ -111,21 +125,50 @@ export class MexcService {
     endTime: number,
   ): Promise<BinanceFundingRate[]> {
     try {
-      const cleanSymbol = symbol.replace(/USDT$/, '_USDT');
-      const response = await axios.get(`${this.baseUrl}/api/v1/contract/funding_rate/history`, {
-        params: { symbol: cleanSymbol, start_time: startTime, end_time: endTime },
-        timeout: 10000,
-      });
+      const cleanSymbol = this.toMexcSymbol(symbol);
+      const response = await axios.get(
+        `${this.baseUrl}/api/v1/contract/funding_rate/history`,
+        {
+          params: {
+            symbol: cleanSymbol,
+            start_time: startTime,
+            end_time: endTime,
+            page_size: 100,
+          },
+          timeout: 10000,
+        },
+      );
 
-      const items = response.data?.data ?? [];
-      return items.map((item: { settleTime: number; fundingRate: number }) => ({
-        symbol,
-        fundingRate: String(item.fundingRate ?? 0),
-        fundingTime: item.settleTime,
-      }));
-    } catch {
+      const items = response.data?.data?.resultList ?? [];
+      return items
+        .filter(
+          (item: { settleTime: number }) =>
+            Number(item.settleTime) >= startTime &&
+            Number(item.settleTime) <= endTime,
+        )
+        .map((item: { settleTime: number; fundingRate: number }) => ({
+          symbol,
+          fundingRate: String(item.fundingRate ?? 0),
+          fundingTime: Number(item.settleTime),
+        }));
+    } catch (error) {
+      this.logger.error(
+        `MEXC funding rate error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      );
       return [];
     }
+  }
+
+  async getLiquidationOrders(
+    _symbol: string,
+    _startTime: number,
+    _endTime: number,
+  ): Promise<BinanceLiquidationOrder[]> {
+    return [];
+  }
+
+  private toMexcSymbol(symbol: string): string {
+    return symbol.includes('_') ? symbol : symbol.replace(/USDT$/, '_USDT');
   }
 
   private mapInterval(interval: string): string {

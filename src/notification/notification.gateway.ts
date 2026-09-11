@@ -119,7 +119,8 @@ export class NotificationGateway
     const dir = data.type === 'PUMP' ? 'upward' : 'downward';
     this.server.emit('preMoveAlert', {
       ...data,
-      message: `${emoji} ${data.strength} pre-${data.type.toLowerCase()} signal: ${data.symbol} | ` +
+      message:
+        `${emoji} ${data.strength} pre-${data.type.toLowerCase()} signal: ${data.symbol} | ` +
         `confidence ${data.confidence.toFixed(0)}% | ${dir} move likely in next ${this.formatWindow(data.windowMs)}`,
       timestamp: new Date(),
     });

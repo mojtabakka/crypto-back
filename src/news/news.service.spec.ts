@@ -128,32 +128,26 @@ describe('NewsService', () => {
       mockedAxios.get.mockResolvedValue({
         data: {
           status: 'success',
-          result: {
-            data: [
-              {
-                id: '1',
-                title: 'Bitcoin Halving',
-                description: 'Next BTC halving event',
-                coinName: 'Bitcoin',
-                coinSymbol: 'BTC',
-                date: '2025-01-01',
-                source: 'CoinMarketCal',
-                sourceUrl: 'https://example.com/event/1',
-                tags: [{ name: 'mining' }, { name: 'supply' }],
-              },
-              {
-                id: '2',
-                title: 'ETH Shanghai',
-                description: 'Ethereum Shanghai upgrade',
-                coinName: 'Ethereum',
-                coinSymbol: 'ETH',
-                date: '2024-04-12',
-                source: 'CoinMarketCal',
-                sourceUrl: 'https://example.com/event/2',
-                tags: [{ name: 'upgrade' }],
-              },
-            ],
-          },
+          data: [
+            {
+              id: '1',
+              title: 'Bitcoin Halving',
+              description: 'Next BTC halving event',
+              coins: [{ name: 'Bitcoin', symbol: 'BTC' }],
+              date: '2025-01-01',
+              source: 'CoinMarketCal',
+              sourceUrl: 'https://example.com/event/1',
+            },
+            {
+              id: '2',
+              title: 'ETH Shanghai',
+              description: 'Ethereum Shanghai upgrade',
+              coins: [{ name: 'Ethereum', symbol: 'ETH' }],
+              date: '2024-04-12',
+              source: 'CoinMarketCal',
+              sourceUrl: 'https://example.com/event/2',
+            },
+          ],
         },
       });
 
@@ -165,7 +159,6 @@ describe('NewsService', () => {
       expect(result.data[0].source).toBe('CoinMarketCal');
       expect(result.data[0].coinName).toBe('Bitcoin');
       expect(result.data[0].coinSymbol).toBe('BTC');
-      expect(result.data[0].tags).toBe('mining,supply');
 
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://api.coinmarketcal.com/v2/events',
@@ -181,21 +174,17 @@ describe('NewsService', () => {
       mockedAxios.get.mockResolvedValue({
         data: {
           status: 'success',
-          result: {
-            data: [
-              {
-                id: '1',
-                title: 'Bitcoin Halving',
-                description: 'Next BTC halving',
-                coinName: 'Bitcoin',
-                coinSymbol: 'BTC',
-                date: '2025-01-01',
-                source: 'CoinMarketCal',
-                sourceUrl: 'https://example.com/1',
-                tags: [],
-              },
-            ],
-          },
+          data: [
+            {
+              id: '1',
+              title: 'Bitcoin Halving',
+              description: 'Next BTC halving',
+              coins: [{ name: 'Bitcoin', symbol: 'BTC' }],
+              date: '2025-01-01',
+              source: 'CoinMarketCal',
+              sourceUrl: 'https://example.com/1',
+            },
+          ],
         },
       });
 
@@ -208,7 +197,7 @@ describe('NewsService', () => {
         expect.any(String),
         expect.objectContaining({
           params: expect.objectContaining({
-            coins: 'Bitcoin',
+            coins: 'bitcoin',
           }),
         }),
       );

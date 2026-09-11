@@ -36,7 +36,9 @@ export class CryptocomService {
         end_ts: endTime,
         count: Math.min(limit, 300),
       };
-      this.logger.log(`🌐 [CRYPTOCOM] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`);
+      this.logger.log(
+        `🌐 [CRYPTOCOM] GET ${url}?${new URLSearchParams(params as unknown as Record<string, string>).toString()}`,
+      );
 
       const response = await axios.get(url, {
         params,
@@ -45,7 +47,14 @@ export class CryptocomService {
 
       const items = response.data?.result?.data ?? [];
       const klines: BinanceKline[] = [];
-      for (const item of items as Array<{ t: number; o: number; h: number; l: number; c: number; v: number }>) {
+      for (const item of items as Array<{
+        t: number;
+        o: number;
+        h: number;
+        l: number;
+        c: number;
+        v: number;
+      }>) {
         klines.push([
           item.t,
           String(item.o),
@@ -64,7 +73,9 @@ export class CryptocomService {
 
       return klines;
     } catch (error) {
-      this.logger.error(`Crypto.com error: ${error instanceof Error ? error.message : 'Unknown'}`);
+      this.logger.error(
+        `Crypto.com error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      );
       return [];
     }
   }

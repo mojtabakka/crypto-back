@@ -7,6 +7,9 @@ import { MexcService } from 'src/mexc/mexc.service';
 import { KucoinService } from 'src/kucoin/kucoin.service';
 import { BingxService } from 'src/bingx/bingx.service';
 import { CryptocomService } from 'src/cryptocom/cryptocom.service';
+import { ToobitService } from 'src/toobit/toobit.service';
+import { LbankService } from 'src/lbank/lbank.service';
+import { OrbitService } from 'src/orbit/orbit.service';
 import { KlineService } from 'src/kline/kline.service';
 import { BinanceKline } from 'src/market/dto/binance-kline.type';
 import { BinanceFundingRate } from 'src/market/types/binance-funding-rate.type';
@@ -20,7 +23,32 @@ export type ExchangeName =
   | 'MEXC'
   | 'KUCOIN'
   | 'BINGX'
-  | 'CRYPTOCOM';
+  | 'CRYPTOCOM'
+  | 'TOOBIT'
+  | 'LBANK'
+  | 'ORBIT';
+
+export function normalizeExchangeName(exchange?: string): ExchangeName {
+  const normalized = exchange?.trim().toUpperCase();
+  if (normalized === 'MEX') return 'MEXC';
+
+  const exchanges: ExchangeName[] = [
+    'BINANCE',
+    'OKX',
+    'BYBIT',
+    'MEXC',
+    'KUCOIN',
+    'BINGX',
+    'CRYPTOCOM',
+    'TOOBIT',
+    'LBANK',
+    'ORBIT',
+  ];
+
+  return exchanges.includes(normalized as ExchangeName)
+    ? (normalized as ExchangeName)
+    : 'BINANCE';
+}
 
 const BLOCKED_STATUS_CODES = new Set([418, 429, 451]);
 const CIRCUIT_BREAKER_DURATION_MS = 60 * 60 * 1000;
@@ -44,6 +72,9 @@ export class ExchangeService {
     private readonly kucoinService: KucoinService,
     private readonly bingxService: BingxService,
     private readonly cryptocomService: CryptocomService,
+    private readonly toobitService: ToobitService,
+    private readonly lbankService: LbankService,
+    private readonly orbitService: OrbitService,
     private readonly klineService: KlineService,
   ) {}
 
@@ -73,9 +104,28 @@ export class ExchangeService {
     );
   }
 
-  getCircuitBreakerStatus(): Record<string, { blocked: boolean; blockedUntil?: number; blockCount?: number; msRemaining?: number }> {
+  getCircuitBreakerStatus(): Record<
+    string,
+    {
+      blocked: boolean;
+      blockedUntil?: number;
+      blockCount?: number;
+      msRemaining?: number;
+    }
+  > {
     const result: Record<string, any> = {};
-    for (const ex of ['BINANCE', 'OKX', 'BYBIT', 'MEXC', 'KUCOIN', 'BINGX', 'CRYPTOCOM'] as ExchangeName[]) {
+    for (const ex of [
+      'BINANCE',
+      'OKX',
+      'BYBIT',
+      'MEXC',
+      'KUCOIN',
+      'BINGX',
+      'CRYPTOCOM',
+      'TOOBIT',
+      'LBANK',
+      'ORBIT',
+    ] as ExchangeName[]) {
       const state = this.circuitBreakers.get(ex);
       if (state && Date.now() < state.blockedUntil) {
         result[ex] = {
@@ -93,8 +143,13 @@ export class ExchangeService {
 
   private isStatusCodeError(err: unknown, codes: Set<number>): boolean {
     if (!err || typeof err !== 'object') return false;
-    const anyErr = err as { response?: { status?: number }; message?: string; status?: number };
-    if (anyErr.response?.status && codes.has(anyErr.response.status)) return true;
+    const anyErr = err as {
+      response?: { status?: number };
+      message?: string;
+      status?: number;
+    };
+    if (anyErr.response?.status && codes.has(anyErr.response.status))
+      return true;
     if (anyErr.status && codes.has(anyErr.status)) return true;
     if (anyErr.message) {
       for (const code of codes) {
@@ -115,7 +170,14 @@ export class ExchangeService {
     this.logger.log(
       `📊 [${exchange}] klines: ${symbol} | ${interval} | ${new Date(startTime).toISOString()} -> ${new Date(endTime).toISOString()}`,
     );
-    return this.getKlinesWithCache(symbol, interval, startTime, endTime, exchange, limit);
+    return this.getKlinesWithCache(
+      symbol,
+      interval,
+      startTime,
+      endTime,
+      exchange,
+      limit,
+    );
   }
 
   async getFuturesKlines(
@@ -133,7 +195,14 @@ export class ExchangeService {
       `📊 [${exchange}] klines: ${symbol} | ${interval} | ${new Date(startTime).toISOString()} -> ${new Date(endTime).toISOString()}`,
     );
     try {
-      return await this.getKlinesWithCache(symbol, interval, startTime, endTime, exchange, limit);
+      return await this.getKlinesWithCache(
+        symbol,
+        interval,
+        startTime,
+        endTime,
+        exchange,
+        limit,
+      );
     } catch (err) {
       if (this.isStatusCodeError(err, BLOCKED_STATUS_CODES)) {
         this.recordBlock(exchange);
@@ -157,6 +226,12 @@ export class ExchangeService {
         return this.bingxService;
       case 'CRYPTOCOM':
         return this.cryptocomService;
+      case 'TOOBIT':
+        return this.toobitService;
+      case 'LBANK':
+        return this.lbankService;
+      case 'ORBIT':
+        return this.orbitService;
       case 'BINANCE':
       default:
         return this.binanceService;
@@ -220,7 +295,13 @@ export class ExchangeService {
       }
     }
 
-    return service.getFuturesKlines(symbol, interval, startTime, endTime, limit);
+    return service.getFuturesKlines(
+      symbol,
+      interval,
+      startTime,
+      endTime,
+      limit,
+    );
   }
 
   async getOpenInterest(
@@ -238,11 +319,11 @@ export class ExchangeService {
     const service = this.getService(exchange);
     if ('getOpenInterest' in service) {
       try {
-        return await (service as { getOpenInterest: typeof this.binanceService.getOpenInterest }).getOpenInterest(
-          symbol,
-          startTime,
-          endTime,
-        );
+        return await (
+          service as {
+            getOpenInterest: typeof this.binanceService.getOpenInterest;
+          }
+        ).getOpenInterest(symbol, startTime, endTime);
       } catch (err) {
         if (this.isStatusCodeError(err, BLOCKED_STATUS_CODES)) {
           this.recordBlock(exchange);
@@ -269,11 +350,11 @@ export class ExchangeService {
     const service = this.getService(exchange);
     if ('getFundingRate' in service) {
       try {
-        return await (service as { getFundingRate: typeof this.binanceService.getFundingRate }).getFundingRate(
-          symbol,
-          startTime,
-          endTime,
-        );
+        return await (
+          service as {
+            getFundingRate: typeof this.binanceService.getFundingRate;
+          }
+        ).getFundingRate(symbol, startTime, endTime);
       } catch (err) {
         if (this.isStatusCodeError(err, BLOCKED_STATUS_CODES)) {
           this.recordBlock(exchange);
@@ -300,11 +381,11 @@ export class ExchangeService {
     const service = this.getService(exchange);
     if ('getLiquidationOrders' in service) {
       try {
-        return await (service as { getLiquidationOrders: typeof this.binanceService.getLiquidationOrders }).getLiquidationOrders(
-          symbol,
-          startTime,
-          endTime,
-        );
+        return await (
+          service as {
+            getLiquidationOrders: typeof this.binanceService.getLiquidationOrders;
+          }
+        ).getLiquidationOrders(symbol, startTime, endTime);
       } catch (err) {
         if (this.isStatusCodeError(err, BLOCKED_STATUS_CODES)) {
           this.recordBlock(exchange);
@@ -317,7 +398,18 @@ export class ExchangeService {
   }
 
   getAvailableExchanges(): ExchangeName[] {
-    return ['BINANCE', 'OKX', 'BYBIT', 'MEXC', 'KUCOIN', 'BINGX', 'CRYPTOCOM'];
+    return [
+      'BINANCE',
+      'OKX',
+      'BYBIT',
+      'MEXC',
+      'KUCOIN',
+      'BINGX',
+      'CRYPTOCOM',
+      'TOOBIT',
+      'LBANK',
+      'ORBIT',
+    ];
   }
 
   resetCircuitBreaker(exchange: ExchangeName): { message: string } {
