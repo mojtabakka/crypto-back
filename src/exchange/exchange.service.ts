@@ -57,6 +57,7 @@ const CIRCUIT_BREAKER_DURATION_MS = 60 * 60 * 1000;
 interface CircuitBreakerState {
   blockedUntil: number;
   blockCount: number;
+  blockReason?: string;
 }
 
 @Injectable()
@@ -91,7 +92,7 @@ export class ExchangeService {
     return true;
   }
 
-  private recordBlock(exchange: ExchangeName): void {
+  private recordBlock(exchange: ExchangeName, reason?: string): void {
     const state = this.circuitBreakers.get(exchange);
     if (state && Date.now() < state.blockedUntil) {
       return;
@@ -99,12 +100,18 @@ export class ExchangeService {
     const newState: CircuitBreakerState = {
       blockedUntil: Date.now() + CIRCUIT_BREAKER_DURATION_MS,
       blockCount: (state?.blockCount ?? 0) + 1,
+      blockReason: reason,
     };
     this.circuitBreakers.set(exchange, newState);
     this.logger.warn(
       `🚫 Circuit breaker TRIPPED for ${exchange} — blocking all calls for 1h (block #${newState.blockCount}). Switch to another exchange!`,
     );
     this.notificationGateway.emitExchangeBlocked(exchange, newState);
+  }
+
+  getBlockReason(exchange: ExchangeName): string | undefined {
+    const state = this.circuitBreakers.get(exchange);
+    return state?.blockReason;
   }
 
   getCircuitBreakerStatus(): Record<
@@ -166,6 +173,17 @@ export class ExchangeService {
     return false;
   }
 
+  private getStatusCode(err: unknown): number | null {
+    if (!err || typeof err !== 'object') return null;
+    const anyErr = err as {
+      response?: { status?: number };
+      status?: number;
+    };
+    if (anyErr.response?.status) return anyErr.response.status;
+    if (anyErr.status) return anyErr.status;
+    return null;
+  }
+
   async getKlines(
     symbol: string,
     interval: string,
@@ -212,7 +230,10 @@ export class ExchangeService {
       );
     } catch (err) {
       if (this.isStatusCodeError(err, BLOCKED_STATUS_CODES)) {
-        this.recordBlock(exchange);
+        const statusCode = this.getStatusCode(err);
+        const reason =
+          statusCode === 451 ? 'Region not supported' : 'IP banned';
+        this.recordBlock(exchange, reason);
         return [];
       }
       throw err;

@@ -92,7 +92,7 @@ export class MarketScannerService {
     private readonly futuresSymbolsService: FuturesSymbolsService,
     private readonly exchangeService: ExchangeService,
     private readonly notificationGateway: NotificationGateway,
-  ) { }
+  ) {}
 
   private currentExchange = 'BINANCE';
   private currentStrategy = '';
@@ -638,6 +638,31 @@ export class MarketScannerService {
     this.setExchange(exchange).setStrategy('FULL_MARKET');
     const startTime = Date.now();
     this.logWithContext('Starting full market scan...');
+
+    this.logWithContext('Testing exchange connectivity...');
+    await this.exchangeService.getFuturesKlines(
+      'BTCUSDT',
+      '1h',
+      Date.now() - 3600000,
+      Date.now(),
+      this.currentExchange as ExchangeName,
+      1,
+    );
+    if (
+      this.exchangeService.isExchangeBlocked(
+        this.currentExchange as ExchangeName,
+      )
+    ) {
+      const reason = this.exchangeService.getBlockReason(
+        this.currentExchange as ExchangeName,
+      );
+      throw new HttpException(
+        reason === 'Region not supported'
+          ? `${this.currentExchange} region not supported. Use VPN or switch exchanges.`
+          : `${this.currentExchange} IP blocked (rate limited/banned). Wait before trying again.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
 
     const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
       this.currentExchange as ExchangeName,
