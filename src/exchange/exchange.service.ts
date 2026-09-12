@@ -15,6 +15,7 @@ import { BinanceKline } from 'src/market/dto/binance-kline.type';
 import { BinanceFundingRate } from 'src/market/types/binance-funding-rate.type';
 import { BinanceLiquidationOrder } from 'src/market/types/binance-liquidation.type';
 import { BinanceOpenInterest } from 'src/market/types/binance-open-interest.type';
+import { NotificationGateway } from 'src/notification/notification.gateway';
 
 export type ExchangeName =
   | 'BINANCE'
@@ -76,6 +77,7 @@ export class ExchangeService {
     private readonly lbankService: LbankService,
     private readonly orbitService: OrbitService,
     private readonly klineService: KlineService,
+    private readonly notificationGateway: NotificationGateway,
   ) {}
 
   private isBlocked(exchange: ExchangeName): boolean {
@@ -102,6 +104,7 @@ export class ExchangeService {
     this.logger.warn(
       `🚫 Circuit breaker TRIPPED for ${exchange} — blocking all calls for 1h (block #${newState.blockCount}). Switch to another exchange!`,
     );
+    this.notificationGateway.emitExchangeBlocked(exchange, newState);
   }
 
   getCircuitBreakerStatus(): Record<
@@ -139,6 +142,10 @@ export class ExchangeService {
       }
     }
     return result;
+  }
+
+  isExchangeBlocked(exchange: ExchangeName): boolean {
+    return this.isBlocked(exchange);
   }
 
   private isStatusCodeError(err: unknown, codes: Set<number>): boolean {

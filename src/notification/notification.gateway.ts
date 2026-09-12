@@ -144,6 +144,19 @@ export class NotificationGateway
     });
   }
 
+  emitExchangeBlocked(
+    exchange: string,
+    state: { blockedUntil: number; blockCount: number },
+  ) {
+    this.server.emit('exchangeBlocked', {
+      exchange,
+      blockedUntil: state.blockedUntil,
+      blockCount: state.blockCount,
+      message: `🚫 ${exchange} blocked — circuit breaker tripped (block #${state.blockCount}). IP may be rate limited or banned. Wait or switch exchanges.`,
+      timestamp: new Date(),
+    });
+  }
+
   private formatWindow(ms: number): string {
     const minutes = Math.floor(ms / 60000);
     if (minutes >= 60) return `${Math.floor(minutes / 60)}h`;

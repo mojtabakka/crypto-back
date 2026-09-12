@@ -13,6 +13,7 @@ import { ToobitModule } from 'src/toobit/toobit.module';
 import { LbankModule } from 'src/lbank/lbank.module';
 import { OrbitModule } from 'src/orbit/orbit.module';
 import { KlineModule } from 'src/kline/kline.module';
+import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { KlineModule } from 'src/kline/kline.module';
     LbankModule,
     OrbitModule,
     KlineModule,
+    NotificationModule,
   ],
   controllers: [ExchangeController],
   providers: [ExchangeService],

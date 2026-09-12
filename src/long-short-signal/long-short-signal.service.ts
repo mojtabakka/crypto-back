@@ -1,4 +1,10 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -33,12 +39,25 @@ export class LongShortSignalService implements OnModuleInit {
 
   @Cron('0 11,13,15,17,19,21,23 * * *')
   async handleCron() {
-    await this.scanAndStoreSignals('BINANCE');
+    try {
+      await this.scanAndStoreSignals('BINANCE');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown';
+      this.logger.error(`[cron] Long/short scan failed: ${msg}`);
+    }
   }
 
   async scanAndStoreSignals(exchange: string = 'BINANCE') {
     exchange = this.normalizeExchange(exchange);
     const startTime = Date.now();
+
+    if (this.exchangeService.isExchangeBlocked(exchange as ExchangeName)) {
+      throw new HttpException(
+        `${exchange} IP blocked (rate limited/banned). Circuit breaker active. Wait or switch exchanges.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     this.logger.log(`[${exchange}] Starting long/short signal scan...`);
 
     try {
@@ -80,6 +99,13 @@ export class LongShortSignalService implements OnModuleInit {
               shorts.push(result);
             }
           }
+        }
+
+        if (this.exchangeService.isExchangeBlocked(exchange as ExchangeName)) {
+          throw new HttpException(
+            `${exchange} IP blocked during scan. Circuit breaker active. Try again later.`,
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
         }
       }
 
@@ -162,6 +188,12 @@ export class LongShortSignalService implements OnModuleInit {
       exchange as ExchangeName,
     );
 
+    if (klines.length === 0) {
+      this.logger.warn(
+        `[${exchange}] getMovingAverages: no klines for ${symbol}. Data may be empty due to API error or IP block.`,
+      );
+      return { sma50: null, priceVsSma50: null, maSignal: 'NEUTRAL' as const };
+    }
     const closes = klines.map((k) => parseFloat(k[4]));
     const sma50 = this.calculateSMA(closes, 50);
     const currentPrice = closes[closes.length - 1];
