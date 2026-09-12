@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 
 import { BinanceService } from 'src/binance/binance.service';
 import { OkxService } from 'src/okx/okx.service';
@@ -65,6 +65,7 @@ export class ExchangeService {
   private readonly logger = new Logger(ExchangeService.name);
 
   private circuitBreakers = new Map<ExchangeName, CircuitBreakerState>();
+  private networkErrorsNotified = new Set<ExchangeName>();
 
   constructor(
     private readonly binanceService: BinanceService,
@@ -86,6 +87,7 @@ export class ExchangeService {
     if (!state) return false;
     if (Date.now() >= state.blockedUntil) {
       this.circuitBreakers.delete(exchange);
+      this.networkErrorsNotified.delete(exchange);
       this.logger.log(`🔓 Circuit breaker reset for ${exchange}`);
       return false;
     }
@@ -184,6 +186,28 @@ export class ExchangeService {
     return null;
   }
 
+  private isNetworkError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const anyErr = err as { code?: string; message?: string };
+    if (
+      anyErr.code === 'ETIMEDOUT' ||
+      anyErr.code === 'ECONNREFUSED' ||
+      anyErr.code === 'ECONNRESET' ||
+      anyErr.code === 'ENOTFOUND'
+    )
+      return true;
+    if (anyErr.message) {
+      const msg = anyErr.message.toLowerCase();
+      return (
+        msg.includes('etimedout') ||
+        msg.includes('econnrefused') ||
+        msg.includes('econnreset') ||
+        msg.includes('network')
+      );
+    }
+    return false;
+  }
+
   async getKlines(
     symbol: string,
     interval: string,
@@ -236,7 +260,20 @@ export class ExchangeService {
         this.recordBlock(exchange, reason);
         return [];
       }
-      throw err;
+
+      if (this.isNetworkError(err)) {
+        if (!this.networkErrorsNotified.has(exchange)) {
+          this.networkErrorsNotified.add(exchange);
+          throw new HttpException(
+            `Currently connecting to ${exchange} is not possible. Please use VPN and try again later.`,
+            HttpStatus.SERVICE_UNAVAILABLE,
+          );
+        }
+        return [];
+      }
+
+      console.error('Non-blocked error in getFuturesKlines:', err);
+      return [];
     }
   }
 
@@ -354,10 +391,24 @@ export class ExchangeService {
         ).getOpenInterest(symbol, startTime, endTime);
       } catch (err) {
         if (this.isStatusCodeError(err, BLOCKED_STATUS_CODES)) {
-          this.recordBlock(exchange);
+          const statusCode = this.getStatusCode(err);
+          const reason =
+            statusCode === 451 ? 'Region not supported' : 'IP banned';
+          this.recordBlock(exchange, reason);
           return [];
         }
-        throw err;
+        if (this.isNetworkError(err)) {
+          if (!this.networkErrorsNotified.has(exchange)) {
+            this.networkErrorsNotified.add(exchange);
+            throw new HttpException(
+              `Currently connecting to ${exchange} is not possible. Please use VPN and try again later.`,
+              HttpStatus.SERVICE_UNAVAILABLE,
+            );
+          }
+          return [];
+        }
+        console.error('Non-blocked error in getOpenInterest:', err);
+        return [];
       }
     }
     return [];
@@ -385,10 +436,24 @@ export class ExchangeService {
         ).getFundingRate(symbol, startTime, endTime);
       } catch (err) {
         if (this.isStatusCodeError(err, BLOCKED_STATUS_CODES)) {
-          this.recordBlock(exchange);
+          const statusCode = this.getStatusCode(err);
+          const reason =
+            statusCode === 451 ? 'Region not supported' : 'IP banned';
+          this.recordBlock(exchange, reason);
           return [];
         }
-        throw err;
+        if (this.isNetworkError(err)) {
+          if (!this.networkErrorsNotified.has(exchange)) {
+            this.networkErrorsNotified.add(exchange);
+            throw new HttpException(
+              `Currently connecting to ${exchange} is not possible. Please use VPN and try again later.`,
+              HttpStatus.SERVICE_UNAVAILABLE,
+            );
+          }
+          return [];
+        }
+        console.error('Non-blocked error in getFundingRate:', err);
+        return [];
       }
     }
     return [];
@@ -416,10 +481,24 @@ export class ExchangeService {
         ).getLiquidationOrders(symbol, startTime, endTime);
       } catch (err) {
         if (this.isStatusCodeError(err, BLOCKED_STATUS_CODES)) {
-          this.recordBlock(exchange);
+          const statusCode = this.getStatusCode(err);
+          const reason =
+            statusCode === 451 ? 'Region not supported' : 'IP banned';
+          this.recordBlock(exchange, reason);
           return [];
         }
-        throw err;
+        if (this.isNetworkError(err)) {
+          if (!this.networkErrorsNotified.has(exchange)) {
+            this.networkErrorsNotified.add(exchange);
+            throw new HttpException(
+              `Currently connecting to ${exchange} is not possible. Please use VPN and try again later.`,
+              HttpStatus.SERVICE_UNAVAILABLE,
+            );
+          }
+          return [];
+        }
+        console.error('Non-blocked error in getLiquidationOrders:', err);
+        return [];
       }
     }
     return [];
@@ -442,12 +521,14 @@ export class ExchangeService {
 
   resetCircuitBreaker(exchange: ExchangeName): { message: string } {
     this.circuitBreakers.delete(exchange);
+    this.networkErrorsNotified.delete(exchange);
     this.logger.log(`🔓 Circuit breaker manually reset for ${exchange}`);
     return { message: `Circuit breaker reset for ${exchange}` };
   }
 
   resetAllCircuitBreakers(): void {
     this.circuitBreakers.clear();
+    this.networkErrorsNotified.clear();
     this.logger.log('🔓 All circuit breakers manually reset');
   }
 }

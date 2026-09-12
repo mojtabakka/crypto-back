@@ -23,10 +23,10 @@ export class MarketScannerController {
     @Query('exchange') exchange?: string,
   ) {
     const parsedLimit = parseInt(limit ?? '20', 10);
-    return this.marketScannerService.scanMarketReliable(
-      parsedLimit,
-      exchange ?? 'BINANCE',
-    );
+    // return this.marketScannerService.scanMarketReliable(
+    //   parsedLimit,
+    //   exchange ?? 'BINANCE',
+    // );
   }
 
   @Get('fake-signals')
@@ -35,10 +35,10 @@ export class MarketScannerController {
     @Query('exchange') exchange?: string,
   ) {
     const parsedLimit = parseInt(limit ?? '50', 10);
-    return this.marketScannerService.scanFakeSignals(
-      parsedLimit,
-      exchange ?? 'BINANCE',
-    );
+    // return this.marketScannerService.scanFakeSignals(
+    //   parsedLimit,
+    //   exchange ?? 'BINANCE',
+    // );
   }
 
   @Get('pullbacks')

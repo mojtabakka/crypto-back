@@ -113,15 +113,6 @@ export class MarketScannerService {
     );
   }
 
-  private throwIfBlocked(exchange: string) {
-    if (this.exchangeService.isExchangeBlocked(exchange as ExchangeName)) {
-      throw new HttpException(
-        `${exchange} IP blocked (rate limited/banned). Circuit breaker active. Try again later.`,
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-  }
-
   private async getKlines(
     symbol: string,
     interval: string,
@@ -210,7 +201,7 @@ export class MarketScannerService {
 
     const currentPrice = recentCloses[recentCloses.length - 1];
     const currentSma = recentSma[recentSma.length - 1];
-    if (!currentSma) {
+   if (!currentSma) {
       return { maPullback: null, maPullbackTouches: touchCount };
     }
 
@@ -638,6 +629,7 @@ export class MarketScannerService {
     this.setExchange(exchange).setStrategy('FULL_MARKET');
     const startTime = Date.now();
     this.logWithContext('Starting full market scan...');
+    
 
     this.logWithContext('Testing exchange connectivity...');
     await this.exchangeService.getFuturesKlines(
@@ -648,6 +640,7 @@ export class MarketScannerService {
       this.currentExchange as ExchangeName,
       1,
     );
+    console.log('helllo')
     if (
       this.exchangeService.isExchangeBlocked(
         this.currentExchange as ExchangeName,
@@ -663,7 +656,7 @@ export class MarketScannerService {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-
+console.log('hello')
     const symbolsData = await this.futuresSymbolsService.getStoredSymbols(
       this.currentExchange as ExchangeName,
     );
@@ -679,7 +672,6 @@ export class MarketScannerService {
 
     const batchSize = 5;
     for (let i = 0; i < symbols.length; i += batchSize) {
-      this.throwIfBlocked(this.currentExchange);
       const batch = symbols.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map((symbol) =>
@@ -718,7 +710,6 @@ export class MarketScannerService {
       for (const result of batchResults) {
         if (result) allResults.push(result);
       }
-      this.throwIfBlocked(this.currentExchange);
     }
 
     const longs = allResults
@@ -773,7 +764,6 @@ export class MarketScannerService {
 
     const batchSize = 5;
     for (let i = 0; i < symbols.length; i += batchSize) {
-      this.throwIfBlocked(this.currentExchange);
       const batch = symbols.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map((symbol) =>
@@ -818,7 +808,6 @@ export class MarketScannerService {
       for (const result of batchResults) {
         if (result) allResults.push(result);
       }
-      this.throwIfBlocked(this.currentExchange);
     }
 
     const longs = allResults
@@ -933,7 +922,6 @@ export class MarketScannerService {
     const batchSize = 5;
 
     for (let i = 0; i < symbols.length; i += batchSize) {
-      this.throwIfBlocked(this.currentExchange);
       const batch = symbols.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map((symbol) =>
@@ -946,7 +934,6 @@ export class MarketScannerService {
       for (const risk of batchResults) {
         if (risk) risks.push(risk);
       }
-      this.throwIfBlocked(this.currentExchange);
     }
 
     risks.sort((a, b) => b.fakeSignalProbability - a.fakeSignalProbability);
@@ -1170,7 +1157,6 @@ export class MarketScannerService {
     const batchSize = 5;
     let processedCount = 0;
     for (let i = 0; i < symbols.length; i += batchSize) {
-      this.throwIfBlocked(this.currentExchange);
       const batch = symbols.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map((symbol) =>
@@ -1216,7 +1202,6 @@ export class MarketScannerService {
         symbol: batch[batch.length - 1],
         scanType: 'pullbacks',
       });
-      this.throwIfBlocked(this.currentExchange);
     }
 
     const longs = allPullbacks
@@ -1276,7 +1261,6 @@ export class MarketScannerService {
 
     const batchSize = 5;
     for (let i = 0; i < symbols.length; i += batchSize) {
-      this.throwIfBlocked(this.currentExchange);
       const batch = symbols.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map((symbol) =>
@@ -1315,7 +1299,6 @@ export class MarketScannerService {
       for (const result of batchResults) {
         if (result) allReapproach.push(result);
       }
-      this.throwIfBlocked(this.currentExchange);
     }
 
     const longs = allReapproach
@@ -1584,7 +1567,6 @@ export class MarketScannerService {
 
     const batchSize = 5;
     for (let i = 0; i < symbols.length; i += batchSize) {
-      this.throwIfBlocked(this.currentExchange);
       const batch = symbols.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map((symbol) =>
@@ -1622,7 +1604,6 @@ export class MarketScannerService {
       for (const result of batchResults) {
         if (result) allPullbacks.push(result);
       }
-      this.throwIfBlocked(this.currentExchange);
     }
 
     const longs = allPullbacks
@@ -1813,7 +1794,6 @@ export class MarketScannerService {
 
     const batchSize = 5;
     for (let i = 0; i < symbols.length; i += batchSize) {
-      this.throwIfBlocked(this.currentExchange);
       const batch = symbols.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map((symbol) =>
@@ -1852,7 +1832,6 @@ export class MarketScannerService {
       for (const result of batchResults) {
         if (result) allReapproach.push(result);
       }
-      this.throwIfBlocked(this.currentExchange);
     }
 
     const longs = allReapproach
