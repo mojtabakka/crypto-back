@@ -11,6 +11,7 @@ import type { ExchangeName } from 'src/exchange/exchange.service';
 import {
   LongShortSignalEntity,
   LongShortDirection,
+  LongShortRiskLevel,
 } from './entities/long-short-signal.entity';
 
 @Injectable()
@@ -116,22 +117,17 @@ export class LongShortSignalService implements OnModuleInit {
       this.getMovingAverages(symbol, exchange),
     ]);
 
-    const isAboveEma50 = mas.maSignal === 'ABOVE';
-    const isBelowEma50 = mas.maSignal === 'BELOW';
-
-    const isLong =
-      isAboveEma50 &&
-      (analysis.finalSignal === 'LONG' ||
-        analysis.finalSignal === 'STRONG_LONG');
-    const isShort =
-      isBelowEma50 &&
-      (analysis.finalSignal === 'SHORT' ||
-        analysis.finalSignal === 'STRONG_SHORT');
-
-    if (!isLong && !isShort) return null;
-
     const tf1h = analysis.timeframes.find((t) => t.timeframe === '1h');
-    const direction: LongShortDirection = isLong ? 'LONG' : 'SHORT';
+    const isLongSignal =
+      analysis.finalSignal === 'LONG' || analysis.finalSignal === 'STRONG_LONG';
+    const isShortSignal =
+      analysis.finalSignal === 'SHORT' ||
+      analysis.finalSignal === 'STRONG_SHORT';
+
+    if (!isLongSignal && !isShortSignal) return null;
+
+    const direction: LongShortDirection = isLongSignal ? 'LONG' : 'SHORT';
+    const risk = this.getFakeSignalRisk(analysis, mas, tf1h);
 
     const entity = new LongShortSignalEntity();
     entity.symbol = symbol;
@@ -148,6 +144,8 @@ export class LongShortSignalService implements OnModuleInit {
     entity.priceVsEma50 = mas.priceVsSma50;
     entity.signal = analysis.finalSignal;
     entity.confidence = analysis.confidence;
+    entity.riskLevel = risk.riskLevel;
+    entity.fakeSignalProbability = risk.fakeSignalProbability;
 
     return entity;
   }
@@ -161,7 +159,7 @@ export class LongShortSignalService implements OnModuleInit {
       '1d',
       startTime,
       endTime,
-      exchange as any,
+      exchange as ExchangeName,
     );
 
     const closes = klines.map((k) => parseFloat(k[4]));
@@ -181,6 +179,70 @@ export class LongShortSignalService implements OnModuleInit {
     if (prices.length < period) return null;
     const slice = prices.slice(-period);
     return slice.reduce((sum, p) => sum + p, 0) / period;
+  }
+
+  private getFakeSignalRisk(
+    analysis: {
+      timeframes: Array<{
+        timeframe: string;
+        score: number;
+        volumeRatio?: number;
+        signal: string;
+      }>;
+      finalSignal: string;
+      confidence: number;
+    },
+    mas: { maSignal: 'ABOVE' | 'BELOW' | 'NEUTRAL' },
+    tf1h: { volumeRatio?: number } | undefined,
+  ): { riskLevel: LongShortRiskLevel; fakeSignalProbability: number } {
+    const isLongSignal =
+      analysis.finalSignal === 'LONG' || analysis.finalSignal === 'STRONG_LONG';
+    const isShortSignal =
+      analysis.finalSignal === 'SHORT' ||
+      analysis.finalSignal === 'STRONG_SHORT';
+
+    let probability = 0;
+
+    if (isLongSignal && mas.maSignal !== 'ABOVE') {
+      probability += 40;
+    }
+
+    if (isShortSignal && mas.maSignal !== 'BELOW') {
+      probability += 40;
+    }
+
+    if (analysis.confidence < 50) {
+      probability += 30;
+    }
+
+    const tf1hVolumeRatio = tf1h?.volumeRatio ?? 0;
+    if (tf1hVolumeRatio < 0.8) {
+      probability += 20;
+    } else if (tf1hVolumeRatio < 1) {
+      probability += 10;
+    }
+
+    const positiveTimeframes = analysis.timeframes.filter(
+      (timeframe) => timeframe.score > 0,
+    ).length;
+    const negativeTimeframes = analysis.timeframes.filter(
+      (timeframe) => timeframe.score < 0,
+    ).length;
+
+    if (isLongSignal && positiveTimeframes < 2) {
+      probability += 20;
+    }
+
+    if (isShortSignal && negativeTimeframes < 2) {
+      probability += 20;
+    }
+
+    const normalizedProbability = Math.min(100, probability);
+
+    return {
+      riskLevel: normalizedProbability >= 35 ? 'HIGH_RISK' : 'NORMAL',
+      fakeSignalProbability: normalizedProbability,
+    };
   }
 
   async getLatestSignals(exchange?: string): Promise<{

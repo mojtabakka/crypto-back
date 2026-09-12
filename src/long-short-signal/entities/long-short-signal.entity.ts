@@ -8,6 +8,8 @@ import {
 
 export type LongShortDirection = 'LONG' | 'SHORT';
 
+export type LongShortRiskLevel = 'NORMAL' | 'HIGH_RISK';
+
 @Entity('long_short_signals')
 export class LongShortSignalEntity {
   @PrimaryGeneratedColumn()
@@ -51,6 +53,12 @@ export class LongShortSignalEntity {
 
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   confidence: number | null;
+
+  @Column({ type: 'varchar', length: 20, default: 'NORMAL' })
+  riskLevel: LongShortRiskLevel;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  fakeSignalProbability: number | null;
 
   @Index()
   @CreateDateColumn()

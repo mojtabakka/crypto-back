@@ -126,6 +126,24 @@ export class NotificationGateway
     });
   }
 
+  sendSafeSellSignal(data: {
+    symbol: string;
+    exchange: string;
+    direction: string;
+    severity: string;
+    safeSellScore: number;
+    priceChange1h: number;
+    priceChange4h: number;
+    currentPrice: number;
+    reasons: string[];
+  }) {
+    this.server.emit('safeSellSignal', {
+      ...data,
+      message: `⚠️ ${data.severity} safe-sell signal: ${data.symbol} | direction: ${data.direction} | score: ${data.safeSellScore}`,
+      timestamp: new Date(),
+    });
+  }
+
   private formatWindow(ms: number): string {
     const minutes = Math.floor(ms / 60000);
     if (minutes >= 60) return `${Math.floor(minutes / 60)}h`;

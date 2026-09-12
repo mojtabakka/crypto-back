@@ -25,6 +25,7 @@ import { PumpDetectorModule } from './pump-detector/pump-detector.module';
 import { DumpDetectorModule } from './dump-detector/dump-detector.module';
 import { PreMoveDetectorModule } from './pre-move-detector/pre-move-detector.module';
 import { WeeklyEma21SignalModule } from './weekly-ema21-signal/weekly-ema21-signal.module';
+import { SafeSellModule } from './safe-sell/safe-sell.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -36,6 +37,7 @@ import { PumpAlertEntity } from './pump-detector/entities/pump-alert.entity';
 import { DumpAlertEntity } from './dump-detector/entities/dump-alert.entity';
 import { PreMoveSignalEntity } from './pre-move-detector/entities/pre-move-signal.entity';
 import { WeeklyEma21SignalEntity } from './weekly-ema21-signal/entities/weekly-ema21-signal.entity';
+import { SafeSellSignalEntity } from './safe-sell/entities/safe-sell-signal.entity';
 
 @Module({
   imports: [
@@ -58,6 +60,7 @@ import { WeeklyEma21SignalEntity } from './weekly-ema21-signal/entities/weekly-e
         DumpAlertEntity,
         PreMoveSignalEntity,
         WeeklyEma21SignalEntity,
+        SafeSellSignalEntity,
       ],
       synchronize: true,
     }),
@@ -84,6 +87,7 @@ import { WeeklyEma21SignalEntity } from './weekly-ema21-signal/entities/weekly-e
     DumpDetectorModule,
     PreMoveDetectorModule,
     WeeklyEma21SignalModule,
+    SafeSellModule,
   ],
   controllers: [AppController],
   providers: [AppService],
