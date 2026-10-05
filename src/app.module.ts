@@ -19,6 +19,9 @@ import { KlineModule } from './kline/kline.module';
 import { VolumeProfileModule } from './volume-profile/volume-profile.module';
 import { VolumeProfileScannerModule } from './volume-profile/volume-profile-scanner.module';
 import { NewListingsModule } from './new-listings/new-listings.module';
+import { AuthModule } from './auth/auth.module';
+import { AlertModule } from './alert/alert.module';
+import { SentimentModule } from './sentiment/sentiment.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -26,6 +29,8 @@ import { FourHourSignalEntity } from './four-hour-signal/entities/four-hour-sign
 import { LongShortSignalEntity } from './long-short-signal/entities/long-short-signal.entity';
 import { KlineEntity } from './kline/entities/kline.entity';
 import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.entity';
+import { PriceAlertEntity } from './alert/entities/price-alert.entity';
+import { SentimentAnalysisEntity } from './sentiment/entities/sentiment-analysis.entity';
 
 @Module({
   imports: [
@@ -36,7 +41,7 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
       username: process.env.DB_USER || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'crypto_volume',
-      entities: [FuturesSymbolEntity, WatchlistEntity, FourHourSignalEntity, LongShortSignalEntity, KlineEntity, VolumeProfileEntity, NewListingEntity],
+      entities: [FuturesSymbolEntity, WatchlistEntity, FourHourSignalEntity, LongShortSignalEntity, KlineEntity, VolumeProfileEntity, NewListingEntity, PriceAlertEntity, SentimentAnalysisEntity],
       synchronize: true,
     }),
     ScheduleModule.forRoot(),
@@ -56,6 +61,9 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     VolumeProfileModule,
     VolumeProfileScannerModule,
     NewListingsModule,
+    AuthModule,
+    AlertModule,
+    SentimentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

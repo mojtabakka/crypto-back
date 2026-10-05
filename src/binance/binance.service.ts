@@ -372,4 +372,56 @@ export class BinanceService {
       throw error;
     }
   }
+
+  async getTickerPrice(symbol: string): Promise<{ price: number; symbol: string } | null> {
+    const cached = await this.redisService.getJson<{ price: number; symbol: string }>(
+      `ticker:${symbol}`,
+    );
+
+    if (cached && Number.isFinite(cached.price)) {
+      return cached;
+    }
+
+    // Try futures first, then spot. The futures host is blocked in some
+    // regions (HTTP 403), and a spot price is close enough for alerts.
+    const endpoints = [
+      `${this.futuresBaseUrl}/api/v1/ticker/price`,
+      `${this.spotBaseUrl}/api/v3/ticker/price`,
+    ];
+
+    for (const url of endpoints) {
+      try {
+        const response = await this.rateLimit(() =>
+          axios.get(url, {
+            params: { symbol },
+            timeout: 10_000,
+          }),
+        );
+
+        const price = parseFloat(response.data?.price);
+
+        if (!Number.isFinite(price)) continue;
+
+        // Short TTL so alerts react quickly but we do not hammer the API.
+        await this.redisService.setJson(
+          `ticker:${symbol}`,
+          { price, symbol },
+          15,
+        );
+
+        return { price, symbol: response.data.symbol ?? symbol };
+      } catch (error) {
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+
+        this.logger.warn(
+          `Ticker price for ${symbol} failed on ${url} (${status ?? 'network error'}), trying next endpoint`,
+        );
+      }
+    }
+
+    // Both hosts unreachable. Alerts stop updating this tick rather than
+    // firing on a stale number; the next tick will retry.
+    this.logger.error(`Could not resolve ticker price for ${symbol}`);
+    return null;
+  }
 }

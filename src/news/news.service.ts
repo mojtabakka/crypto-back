@@ -543,4 +543,47 @@ export class NewsService {
 
     return text.replace(/<[^>]+>/g, '').trim();
   }
+
+  async getNewsForSymbol(symbol: string, limit: number = 50): Promise<CryptoNewsItem[]> {
+    const response = await this.getNews({ limit: 200 });
+    return this.filterBySymbol(response.data, symbol).slice(0, limit);
+  }
+
+  /**
+   * Combined English-language coverage for a symbol: RSS feeds filtered by
+   * keyword plus TradingView headlines for the same asset. Used by the
+   * sentiment engine, which needs as much text as possible.
+   */
+  async getCombinedNewsForSymbol(symbol: string, limit = 60): Promise<CryptoNewsItem[]> {
+    const base = symbol.replace(/USDT?$/i, '').toUpperCase();
+
+    const rssPromise = this.getNewsForSymbol(symbol, limit).catch(() => []);
+
+    const tvPromise = this.getTradingViewNews(base, 40)
+      .then((response) => response.data ?? [])
+      .catch(() => []);
+
+    const [rss, tv] = await Promise.all([rssPromise, tvPromise]);
+
+    const normalized: CryptoNewsItem[] = tv.map((item) => ({
+      id: item.id,
+      title: item.title,
+      description: item.description ?? '',
+      source: item.source ?? 'TradingView',
+      url: item.url ?? '',
+      publishedOn: item.publishedOn ?? 0,
+      tags: item.tags ?? '',
+      categories: '',
+    }));
+
+    const seen = new Set<string>();
+    const merged = [...rss, ...normalized].filter((article) => {
+      const key = article.title.toLowerCase().trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    return merged.slice(0, limit);
+  }
 }

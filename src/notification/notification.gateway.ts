@@ -68,4 +68,21 @@ export class NotificationGateway
       timestamp: new Date(),
     });
   }
+
+  sendPriceAlert(data: {
+    userId: number;
+    username: string;
+    alertId: number;
+    symbol: string;
+    targetPrice: number;
+    currentPrice: number;
+    condition: string;
+    note: string | null;
+  }) {
+    this.server.emit('priceAlert', {
+      ...data,
+      message: `Price Alert: ${data.symbol} is ${data.condition} ${data.targetPrice} (current: ${data.currentPrice})`,
+      timestamp: new Date(),
+    });
+  }
 }
