@@ -85,4 +85,51 @@ export class NotificationGateway
       timestamp: new Date(),
     });
   }
+
+  sendCorrelationAlert(data: {
+    symbol: string;
+    benchmark: string;
+    correlation: number;
+    previous: number;
+    direction: string;
+  }) {
+    this.server.emit('correlationAlert', {
+      ...data,
+      message: `Rotation: ${data.symbol} correlation with ${data.benchmark} moved ${data.previous} -> ${data.correlation}`,
+      timestamp: new Date(),
+    });
+  }
+
+  sendTradeExecuted(data: {
+    username: string;
+    symbol: string;
+    side: string;
+    entryPrice: number;
+    quantity: number;
+    reason: string;
+    leverage: number;
+  }) {
+    this.server.emit('tradeExecuted', {
+      ...data,
+      message: `${data.side} ${data.symbol} @ ${data.entryPrice} (${data.reason})`,
+      timestamp: new Date(),
+    });
+  }
+
+  sendTradeClosed(data: {
+    username: string;
+    symbol: string;
+    side: string;
+    entryPrice: number;
+    exitPrice: number;
+    pnlPercent: number;
+    reason: string;
+    durationMs: number;
+  }) {
+    this.server.emit('tradeClosed', {
+      ...data,
+      message: `Closed ${data.side} ${data.symbol} @ ${data.exitPrice} (${data.pnlPercent.toFixed(2)}%)`,
+      timestamp: new Date(),
+    });
+  }
 }

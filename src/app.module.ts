@@ -22,6 +22,9 @@ import { NewListingsModule } from './new-listings/new-listings.module';
 import { AuthModule } from './auth/auth.module';
 import { AlertModule } from './alert/alert.module';
 import { SentimentModule } from './sentiment/sentiment.module';
+import { CorrelationModule } from './correlation/correlation.module';
+import { BacktestModule } from './backtest/backtest.module';
+import { ExecutorModule } from './executor/executor.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -31,6 +34,11 @@ import { KlineEntity } from './kline/entities/kline.entity';
 import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.entity';
 import { PriceAlertEntity } from './alert/entities/price-alert.entity';
 import { SentimentAnalysisEntity } from './sentiment/entities/sentiment-analysis.entity';
+import { CorrelationSnapshotEntity } from './correlation/entities/correlation-snapshot.entity';
+import { CorrelationPairEntity } from './correlation/entities/correlation-pair.entity';
+import { BacktestResultEntity } from './backtest/entities/backtest-result.entity';
+import { PositionEntity } from './executor/entities/position.entity';
+import { ExecutorSettingsEntity } from './executor/entities/executor-settings.entity';
 
 @Module({
   imports: [
@@ -41,7 +49,7 @@ import { SentimentAnalysisEntity } from './sentiment/entities/sentiment-analysis
       username: process.env.DB_USER || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'crypto_volume',
-      entities: [FuturesSymbolEntity, WatchlistEntity, FourHourSignalEntity, LongShortSignalEntity, KlineEntity, VolumeProfileEntity, NewListingEntity, PriceAlertEntity, SentimentAnalysisEntity],
+      entities: [FuturesSymbolEntity, WatchlistEntity, FourHourSignalEntity, LongShortSignalEntity, KlineEntity, VolumeProfileEntity, NewListingEntity, PriceAlertEntity, SentimentAnalysisEntity, CorrelationSnapshotEntity, CorrelationPairEntity, BacktestResultEntity, PositionEntity, ExecutorSettingsEntity],
       synchronize: true,
     }),
     ScheduleModule.forRoot(),
@@ -64,6 +72,9 @@ import { SentimentAnalysisEntity } from './sentiment/entities/sentiment-analysis
     AuthModule,
     AlertModule,
     SentimentModule,
+    CorrelationModule,
+    BacktestModule,
+    ExecutorModule,
   ],
   controllers: [AppController],
   providers: [AppService],
