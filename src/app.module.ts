@@ -19,6 +19,9 @@ import { KlineModule } from './kline/kline.module';
 import { VolumeProfileModule } from './volume-profile/volume-profile.module';
 import { VolumeProfileScannerModule } from './volume-profile/volume-profile-scanner.module';
 import { NewListingsModule } from './new-listings/new-listings.module';
+import { TVLAnalysisModule } from './tvl-analysis/tvl-analysis.module';
+import { TVLValidationModule } from './tvl-validation/tvl-validation.module';
+import { ProtocolAnalysisModule } from './protocol-analysis/protocol-analysis.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -56,6 +59,9 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     VolumeProfileModule,
     VolumeProfileScannerModule,
     NewListingsModule,
+    TVLAnalysisModule,
+    TVLValidationModule,
+    ProtocolAnalysisModule,
   ],
   controllers: [AppController],
   providers: [AppService],
