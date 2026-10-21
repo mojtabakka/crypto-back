@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { ExchangeService } from 'src/exchange/exchange.service';
+import { ExchangeService, type ExchangeName } from 'src/exchange/exchange.service';
 
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 
@@ -66,6 +66,7 @@ export class MarketSignalService {
     symbol: string,
     startTime: number,
     endTime: number,
+    exchange: ExchangeName = 'binance',
   ): Promise<MultiTimeframeAnalysis> {
     const cacheKey = `analysis:${symbol}:${startTime}:${endTime}`;
 
@@ -88,6 +89,8 @@ export class MarketSignalService {
         '15m',
         startTime,
         endTime,
+        1000,
+        exchange,
       );
 
       // ========================================
@@ -98,6 +101,7 @@ export class MarketSignalService {
         symbol,
         startTime,
         endTime,
+        exchange,
       );
 
       // ========================================
@@ -108,12 +112,14 @@ export class MarketSignalService {
         symbol,
         startTime,
         endTime,
+        exchange,
       );
 
       let liquidations = await this.exchangeService.getLiquidationOrders(
         symbol,
         startTime,
         endTime,
+        exchange,
       );
 
       if (!liquidations.length) {

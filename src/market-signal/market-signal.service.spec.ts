@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MarketSignalService } from './market-signal.service';
-import { BinanceService } from 'src/binance/binance.service';
+import { ExchangeService } from 'src/exchange/exchange.service';
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 import { RedisService } from 'src/redis/redis.service';
 import type { MarketSnapshot } from 'src/market/signals/market-snapshot';
@@ -13,7 +13,7 @@ describe('MarketSignalService', () => {
       providers: [
         MarketSignalService,
         {
-          provide: BinanceService,
+          provide: ExchangeService,
           useValue: {
             getFuturesKlines: jest.fn(),
             getOpenInterest: jest.fn(),
@@ -165,7 +165,7 @@ describe('MarketSignalService', () => {
       expect(hasShortBuilding).toBe(true);
     });
 
-    it('should detect HEALTHY_BULLISH when price and OI rise with stable funding', () => {
+    it('should detect STRONG_BULLISH when price, OI, volume and funding all rise strongly', () => {
       const snapshots = createRampedSnapshots(
         100,
         110,
@@ -180,10 +180,10 @@ describe('MarketSignalService', () => {
       const result = service.analyze(snapshots);
 
       const allSignals = result.timeframes.flatMap((t) => t.signals);
-      const hasHealthyBullish = allSignals.some(
-        (s) => s.code === 'HEALTHY_BULLISH',
+      const hasStrongBullish = allSignals.some(
+        (s) => s.code === 'STRONG_BULLISH',
       );
-      expect(hasHealthyBullish).toBe(true);
+      expect(hasStrongBullish).toBe(true);
     });
 
     it('should include signals in each timeframe analysis', () => {

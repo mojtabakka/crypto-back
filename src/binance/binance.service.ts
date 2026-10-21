@@ -24,9 +24,11 @@ export class BinanceService {
   private readonly KLINES_CACHE_TTL = 5 * 60; // 5 minutes
   private readonly OI_CACHE_TTL = 5 * 60; // 5 minutes
 
-  // Rate limiting: 2000 requests per minute (under 2400 limit)
-  private readonly MAX_REQUESTS_PER_MINUTE = 2000;
-  private readonly REQUEST_INTERVAL_MS = 60000 / 2000; // 30ms between requests
+  // Rate limiting: be conservative to avoid Binance IP bans.
+  // 1200 requests per minute keeps us well under the 2400 weight/min limit
+  // and leaves headroom for the futures forceOrders / OI endpoints.
+  private readonly MAX_REQUESTS_PER_MINUTE = 1200;
+  private readonly REQUEST_INTERVAL_MS = 60000 / 1200; // 50ms between requests
   private lastRequestTime = 0;
   private requestQueue: Array<{
     resolve: (value: unknown) => void;
@@ -40,11 +42,11 @@ export class BinanceService {
   private async rateLimit<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.requestQueue.push({
-        resolve: resolve as (value: unknown) => void,
+        resolve: resolve,
         reject,
         fn,
       });
-      this.processQueue();
+      void this.processQueue();
     });
   }
 
@@ -107,18 +109,15 @@ export class BinanceService {
 
     while (currentStartTime < endTime) {
       const response = await this.rateLimit(() =>
-        axios.get<BinanceKline[]>(
-          `${this.spotBaseUrl}/api/v3/klines`,
-          {
-            params: {
-              symbol,
-              interval,
-              startTime: currentStartTime,
-              endTime,
-              limit,
-            },
+        axios.get<BinanceKline[]>(`${this.spotBaseUrl}/api/v3/klines`, {
+          params: {
+            symbol,
+            interval,
+            startTime: currentStartTime,
+            endTime,
+            limit,
           },
-        ),
+        }),
       );
 
       const klines = response.data;
@@ -167,9 +166,8 @@ export class BinanceService {
     let currentStartTime = startTime;
 
     while (currentStartTime < endTime) {
-      const response = await axios.get<BinanceKline[]>(
-        `${this.futuresBaseUrl}/fapi/v1/klines`,
-        {
+      const response = await this.rateLimit(() =>
+        axios.get<BinanceKline[]>(`${this.futuresBaseUrl}/fapi/v1/klines`, {
           params: {
             symbol,
             interval,
@@ -177,7 +175,7 @@ export class BinanceService {
             endTime,
             limit,
           },
-        },
+        }),
       );
 
       const klines = response.data;
@@ -222,17 +220,19 @@ export class BinanceService {
       return cached;
     }
 
-    const response = await axios.get<BinanceOpenInterest[]>(
-      `${this.futuresBaseUrl}/futures/data/openInterestHist`,
-      {
-        params: {
-          symbol,
-          period: '5m',
-          startTime,
-          endTime,
-          limit: 500,
+    const response = await this.rateLimit(() =>
+      axios.get<BinanceOpenInterest[]>(
+        `${this.futuresBaseUrl}/futures/data/openInterestHist`,
+        {
+          params: {
+            symbol,
+            period: '5m',
+            startTime,
+            endTime,
+            limit: 500,
+          },
         },
-      },
+      ),
     );
 
     const data = Array.isArray(response.data) ? response.data : [];
@@ -263,16 +263,18 @@ export class BinanceService {
     const apiData: BinanceFundingRate[] = [];
 
     try {
-      const response = await axios.get<BinanceFundingRate[]>(
-        `${this.futuresBaseUrl}/fapi/v1/fundingRate`,
-        {
-          params: {
-            symbol,
-            startTime,
-            endTime,
-            limit: 1000,
+      const response = await this.rateLimit(() =>
+        axios.get<BinanceFundingRate[]>(
+          `${this.futuresBaseUrl}/fapi/v1/fundingRate`,
+          {
+            params: {
+              symbol,
+              startTime,
+              endTime,
+              limit: 1000,
+            },
           },
-        },
+        ),
       );
 
       if (Array.isArray(response.data)) {
@@ -344,16 +346,18 @@ export class BinanceService {
     endTime: number,
   ): Promise<BinanceLiquidationOrder[]> {
     try {
-      const response = await axios.get<BinanceLiquidationOrder[]>(
-        `${this.futuresBaseUrl}/fapi/v1/allForceOrders`,
-        {
-          params: {
-            symbol,
-            startTime,
-            endTime,
-            limit: 1000,
+      const response = await this.rateLimit(() =>
+        axios.get<BinanceLiquidationOrder[]>(
+          `${this.futuresBaseUrl}/fapi/v1/allForceOrders`,
+          {
+            params: {
+              symbol,
+              startTime,
+              endTime,
+              limit: 1000,
+            },
           },
-        },
+        ),
       );
 
       return Array.isArray(response.data) ? response.data : [];

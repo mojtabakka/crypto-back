@@ -147,4 +147,132 @@ describe('Signal rules', () => {
       true,
     );
   });
+
+  // ---------------------------------------------------------------
+  // Priority Collapse regression tests (bug #1: rule co-firing)
+  // ---------------------------------------------------------------
+
+  it('does not co-fire LONG_FLUSH and SEVERE_LONG_SQUEEZE', () => {
+    const detector = new SignalDetector();
+
+    const analysis = buildAnalysis({
+      price: {
+        value: 90,
+        change: -5,
+        movement: 'STRONG_DOWN',
+      },
+      openInterest: {
+        value: 4000,
+        change: -10,
+        movement: 'STRONG_DOWN',
+      },
+      volume: {
+        value: 3000,
+        change: 60,
+        movement: 'STRONG_UP',
+      },
+      funding: {
+        value: -0.0001,
+        change: -0.0002,
+      },
+      liquidation: {
+        long: 500,
+        short: 100,
+        total: 600,
+        net: 400,
+        change: 50,
+      },
+    });
+
+    const codes = detector.analyze(analysis).map((s) => s.code);
+
+    const hasFlush = codes.includes('LONG_FLUSH');
+    const hasSevere = codes.includes('SEVERE_LONG_SQUEEZE');
+
+    // Only the highest-scored member of the family may be emitted.
+    expect(hasFlush && hasSevere).toBe(false);
+    expect(hasSevere).toBe(true);
+  });
+
+  it('does not co-fire STRONG_BULLISH and HEALTHY_BULLISH', () => {
+    const detector = new SignalDetector();
+
+    const analysis = buildAnalysis({
+      price: {
+        value: 110,
+        change: 15,
+        movement: 'STRONG_UP',
+      },
+      openInterest: {
+        value: 6000,
+        change: 12,
+        movement: 'STRONG_UP',
+      },
+      volume: {
+        value: 2000,
+        change: 40,
+        movement: 'STRONG_UP',
+      },
+      funding: {
+        value: 0.0001,
+        change: -0.00005,
+      },
+      liquidation: {
+        long: 100,
+        short: 100,
+        total: 200,
+        net: 0,
+        change: 0,
+      },
+    });
+
+    const codes = detector.analyze(analysis).map((s) => s.code);
+
+    const hasStrong = codes.includes('STRONG_BULLISH');
+    const hasHealthy = codes.includes('HEALTHY_BULLISH');
+
+    expect(hasStrong && hasHealthy).toBe(false);
+    expect(hasStrong).toBe(true);
+  });
+
+  it('does not co-fire LONG_PUMP and PUMP_DISTRIBUTION_RISK', () => {
+    const detector = new SignalDetector();
+
+    const analysis = buildAnalysis({
+      price: {
+        value: 110,
+        change: 15,
+        movement: 'STRONG_UP',
+      },
+      openInterest: {
+        value: 6000,
+        change: 12,
+        movement: 'STRONG_UP',
+      },
+      volume: {
+        value: 2000,
+        change: 60,
+        movement: 'STRONG_UP',
+      },
+      funding: {
+        value: 0.0001,
+        change: 0.0002,
+      },
+      liquidation: {
+        long: 200,
+        short: 100,
+        total: 300,
+        net: 100,
+        change: 50,
+      },
+    });
+
+    const codes = detector.analyze(analysis).map((s) => s.code);
+
+    const hasPump = codes.includes('LONG_PUMP');
+    const hasDist = codes.includes('PUMP_DISTRIBUTION_RISK');
+
+    expect(hasPump && hasDist).toBe(false);
+    expect(hasPump).toBe(true);
+  });
 });

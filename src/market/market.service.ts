@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-import { ExchangeService } from 'src/exchange/exchange.service';
+import { ExchangeService, type ExchangeName } from 'src/exchange/exchange.service';
 
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 
@@ -144,6 +144,7 @@ export class MarketService {
   async getSignals(
     symbol: string,
     range: MarketRange,
+    exchange: ExchangeName = 'binance',
   ): Promise<MarketResponseDto> {
     // =================================================
     // 1. Time Range
@@ -164,6 +165,8 @@ export class MarketService {
       '15m',
       startTime,
       endTime,
+      1000,
+      exchange,
     );
 
     // =================================================
@@ -174,6 +177,7 @@ export class MarketService {
       symbol,
       startTime,
       endTime,
+      exchange,
     );
 
     // =================================================
@@ -184,6 +188,7 @@ export class MarketService {
       symbol,
       startTime,
       endTime,
+      exchange,
     );
 
     // =================================================
@@ -194,6 +199,7 @@ export class MarketService {
       symbol,
       startTime,
       endTime,
+      exchange,
     );
 
     // اگر API لیکوئیداسیون ندارد، از WebSocket استفاده کن

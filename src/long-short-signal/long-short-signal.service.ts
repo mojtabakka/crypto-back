@@ -6,7 +6,7 @@ import { Repository } from 'typeorm';
 import { MarketScannerService } from 'src/market-scanner/market-scanner.service';
 import { MarketSignalService } from 'src/market-signal/market-signal.service';
 import { FuturesSymbolsService } from 'src/futures-symbols/futures-symbols.service';
-import { ExchangeService } from 'src/exchange/exchange.service';
+import { ExchangeService, type ExchangeName } from 'src/exchange/exchange.service';
 import {
   LongShortSignalEntity,
   LongShortDirection,
@@ -27,24 +27,74 @@ export class LongShortSignalService implements OnModuleInit {
 
   onModuleInit() {
     this.logger.log('LongShortSignalService initialized');
+
+    // Auto-seed futures symbols if the DB is empty, then run an initial scan
+    // so the long/short endpoints return data without waiting for the cron.
+    void this.bootstrap();
+  }
+
+  private async bootstrap(): Promise<void> {
+    try {
+      const stored = await this.futuresSymbolsService.getStoredSymbols();
+      if (!stored || !stored.symbols || stored.symbols.length === 0) {
+        this.logger.log('No futures symbols stored; fetching from Binance...');
+        await this.futuresSymbolsService.fetchAndStoreSymbols();
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Failed to seed futures symbols: ${msg}`);
+    }
+
+    try {
+      await this.scanAndStoreSignals('binance');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Initial long/short scan failed: ${msg}`);
+    }
+  }
+
+  /**
+   * Manual trigger (exposed via controller) so the frontend / user can
+   * force a fresh scan instead of waiting for the cron.
+   */
+  async triggerScan(exchange: ExchangeName = 'binance'): Promise<{ count: number; duration: number }> {
+    const startTime = Date.now();
+    await this.scanAndStoreSignals(exchange);
+    const all = await this.signalRepository.find({ where: { exchange } });
+    return { count: all.length, duration: Date.now() - startTime };
   }
 
   @Cron('0 11,13,15,17,19,21,23 * * *')
   async handleCron() {
-    await this.scanAndStoreSignals();
+    await this.scanAndStoreSignals('binance');
   }
 
-  private async scanAndStoreSignals() {
+  private async scanAndStoreSignals(exchange: ExchangeName = 'binance') {
     const startTime = Date.now();
-    this.logger.log('Starting long/short signal scan...');
+    this.logger.log(`Starting long/short signal scan (${exchange})...`);
 
     try {
-      await this.signalRepository.clear();
+      // Only clear rows for this exchange to keep other exchanges' data.
+      await this.signalRepository.delete({ exchange });
 
-      const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
-      const symbols = symbolsData.symbols
-        .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
-        .map((s) => s.symbol);
+      let symbols: string[] = [];
+      if (exchange === 'binance') {
+        const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+        symbols = symbolsData.symbols
+          .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
+          .map((s) => s.symbol);
+      } else {
+        // For non-binance exchanges, reuse Binance's symbol list as a proxy
+        // (major USDT perps exist on all three exchanges).
+        const symbolsData = await this.futuresSymbolsService.getStoredSymbols();
+        symbols = symbolsData.symbols
+          .filter((s) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
+          .map((s) => s.symbol);
+      }
+
+      this.logger.log(
+        `Scanning ${symbols.length} symbols for long/short signals (${exchange})...`,
+      );
 
       this.logger.log(
         `Scanning ${symbols.length} symbols for long/short signals...`,
@@ -56,12 +106,12 @@ export class LongShortSignalService implements OnModuleInit {
       const endTime = Date.now();
       const analysisStart = endTime - 24 * 60 * 60 * 1000;
 
-      const batchSize = 5;
+      const batchSize = 3;
       for (let i = 0; i < symbols.length; i += batchSize) {
         const batch = symbols.slice(i, i + batchSize);
         const batchResults = await Promise.all(
           batch.map((symbol) =>
-            this.analyzeSymbol(symbol, analysisStart, endTime)
+            this.analyzeSymbol(symbol, analysisStart, endTime, exchange)
               .then((result) => result)
               .catch(() => null),
           ),
@@ -75,6 +125,11 @@ export class LongShortSignalService implements OnModuleInit {
               shorts.push(result);
             }
           }
+        }
+
+        // Throttle between batches to avoid Binance IP bans.
+        if (i + batchSize < symbols.length) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
         }
       }
 
@@ -96,10 +151,16 @@ export class LongShortSignalService implements OnModuleInit {
     symbol: string,
     analysisStart: number,
     endTime: number,
+    exchange: ExchangeName = 'binance',
   ): Promise<LongShortSignalEntity | null> {
     const [analysis, mas] = await Promise.all([
-      this.marketSignalService.analyzeSymbol(symbol, analysisStart, endTime),
-      this.getMovingAverages(symbol),
+      this.marketSignalService.analyzeSymbol(
+        symbol,
+        analysisStart,
+        endTime,
+        exchange,
+      ),
+      this.getMovingAverages(symbol, exchange),
     ]);
 
     const isAboveEma50 = mas.maSignal === 'ABOVE';
@@ -121,6 +182,7 @@ export class LongShortSignalService implements OnModuleInit {
 
     const entity = new LongShortSignalEntity();
     entity.symbol = symbol;
+    entity.exchange = exchange;
     entity.direction = direction;
     entity.score = analysis.finalScore;
     entity.priceChange = tf1h?.priceChange ?? null;
@@ -137,7 +199,7 @@ export class LongShortSignalService implements OnModuleInit {
     return entity;
   }
 
-  private async getMovingAverages(symbol: string) {
+  private async getMovingAverages(symbol: string, exchange: ExchangeName = 'binance') {
     const endTime = Date.now();
     const startTime = endTime - 30 * 24 * 60 * 60 * 1000;
 
@@ -146,6 +208,8 @@ export class LongShortSignalService implements OnModuleInit {
       '1d',
       startTime,
       endTime,
+      1000,
+      exchange,
     );
 
     const closes = klines.map((k) => parseFloat(k[4]));
@@ -167,15 +231,30 @@ export class LongShortSignalService implements OnModuleInit {
     return slice.reduce((sum, p) => sum + p, 0) / period;
   }
 
-  async getLatestSignals(): Promise<{
+  async getLatestSignals(exchange: ExchangeName = 'binance'): Promise<{
     longs: LongShortSignalEntity[];
     shorts: LongShortSignalEntity[];
     lastUpdate: Date | null;
     totalCount: number;
   }> {
-    const allSignals = await this.signalRepository.find({
+    let allSignals = await this.signalRepository.find({
+      where: { exchange },
       order: { score: 'DESC' },
     });
+
+    // Lazy scan: if the table is empty for this exchange, run one scan.
+    if (allSignals.length === 0) {
+      try {
+        await this.scanAndStoreSignals(exchange);
+        allSignals = await this.signalRepository.find({
+          where: { exchange },
+          order: { score: 'DESC' },
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Lazy long/short scan failed: ${msg}`);
+      }
+    }
 
     const longs = allSignals
       .filter((s) => s.direction === 'LONG')
@@ -194,16 +273,16 @@ export class LongShortSignalService implements OnModuleInit {
     };
   }
 
-  async getLongSignals(): Promise<LongShortSignalEntity[]> {
+  async getLongSignals(exchange: ExchangeName = 'binance'): Promise<LongShortSignalEntity[]> {
     return this.signalRepository.find({
-      where: { direction: 'LONG' },
+      where: { direction: 'LONG', exchange },
       order: { score: 'DESC' },
     });
   }
 
-  async getShortSignals(): Promise<LongShortSignalEntity[]> {
+  async getShortSignals(exchange: ExchangeName = 'binance'): Promise<LongShortSignalEntity[]> {
     return this.signalRepository.find({
-      where: { direction: 'SHORT' },
+      where: { direction: 'SHORT', exchange },
       order: { score: 'DESC' },
     });
   }

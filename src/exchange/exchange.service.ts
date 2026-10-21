@@ -1,11 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { BinanceService } from 'src/binance/binance.service';
+import { OkxService } from 'src/okx/okx.service';
+import { BybitService } from 'src/bybit/bybit.service';
+import { MexcService } from 'src/mexc/mexc.service';
 import { KlineService } from 'src/kline/kline.service';
 import { BinanceKline } from 'src/market/dto/binance-kline.type';
 import { BinanceFundingRate } from 'src/market/types/binance-funding-rate.type';
 import { BinanceLiquidationOrder } from 'src/market/types/binance-liquidation.type';
 import { BinanceOpenInterest } from 'src/market/types/binance-open-interest.type';
+
+export type ExchangeName = 'binance' | 'okx' | 'bybit' | 'mexc' | 'mex';
 
 @Injectable()
 export class ExchangeService {
@@ -13,8 +18,25 @@ export class ExchangeService {
 
   constructor(
     private readonly binanceService: BinanceService,
+    private readonly okxService: OkxService,
+    private readonly bybitService: BybitService,
+    private readonly mexcService: MexcService,
     private readonly klineService: KlineService,
   ) {}
+
+  private getService(exchange: ExchangeName = 'binance') {
+    switch (exchange) {
+      case 'okx':
+        return this.okxService;
+      case 'bybit':
+        return this.bybitService;
+      case 'mexc':
+      case 'mex':
+        return this.mexcService;
+      default:
+        return this.binanceService;
+    }
+  }
 
   async getKlines(
     symbol: string,
@@ -22,7 +44,12 @@ export class ExchangeService {
     startTime: number,
     endTime: number,
     limit = 1000,
+    exchange: ExchangeName = 'binance',
   ): Promise<BinanceKline[]> {
+    if (exchange !== 'binance') {
+      const svc = this.getService(exchange);
+      return svc.getKlines(symbol, interval, startTime, endTime, limit);
+    }
     return this.getKlinesWithCache(symbol, interval, startTime, endTime, limit);
   }
 
@@ -32,7 +59,12 @@ export class ExchangeService {
     startTime: number,
     endTime: number,
     limit = 1000,
+    exchange: ExchangeName = 'binance',
   ): Promise<BinanceKline[]> {
+    if (exchange !== 'binance') {
+      const svc = this.getService(exchange);
+      return svc.getFuturesKlines(symbol, interval, startTime, endTime, limit);
+    }
     return this.getKlinesWithCache(symbol, interval, startTime, endTime, limit);
   }
 
@@ -94,23 +126,29 @@ export class ExchangeService {
     symbol: string,
     startTime: number,
     endTime: number,
+    exchange: ExchangeName = 'binance',
   ): Promise<BinanceOpenInterest[]> {
-    return this.binanceService.getOpenInterest(symbol, startTime, endTime);
+    const svc = this.getService(exchange);
+    return svc.getOpenInterest(symbol, startTime, endTime);
   }
 
   async getFundingRate(
     symbol: string,
     startTime: number,
     endTime: number,
+    exchange: ExchangeName = 'binance',
   ): Promise<BinanceFundingRate[]> {
-    return this.binanceService.getFundingRate(symbol, startTime, endTime);
+    const svc = this.getService(exchange);
+    return svc.getFundingRate(symbol, startTime, endTime);
   }
 
   async getLiquidationOrders(
     symbol: string,
     startTime: number,
     endTime: number,
+    exchange: ExchangeName = 'binance',
   ): Promise<BinanceLiquidationOrder[]> {
-    return this.binanceService.getLiquidationOrders(symbol, startTime, endTime);
+    const svc = this.getService(exchange);
+    return svc.getLiquidationOrders(symbol, startTime, endTime);
   }
 }

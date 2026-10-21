@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 
 import { MarketSignalService } from './market-signal.service';
+import type { ExchangeName } from 'src/exchange/exchange.service';
 
 @Controller('market-signal')
 export class MarketSignalController {
@@ -10,11 +11,18 @@ export class MarketSignalController {
   async getSignal(
     @Query('symbol')
     symbol = 'BTCUSDT',
+    @Query('exchange')
+    exchange: ExchangeName = 'binance',
   ) {
     const endTime = Date.now();
 
     const startTime = endTime - 24 * 60 * 60 * 1000;
 
-    return this.marketSignalService.analyzeSymbol(symbol, startTime, endTime);
+    return this.marketSignalService.analyzeSymbol(
+      symbol,
+      startTime,
+      endTime,
+      exchange,
+    );
   }
 }

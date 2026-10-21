@@ -6,6 +6,7 @@ import { MarketQueryDto } from './dto/market-query.dto';
 import { MarketSymbolDto } from './dto/market-symbol.dto';
 
 import { LiquidationService } from 'src/liquidation/liquidation.service';
+import type { ExchangeName } from 'src/exchange/exchange.service';
 
 import type { MarketRange } from './dto/market-range.dto';
 import type { MarketResponseDto } from './dto/market-response.dto';
@@ -101,11 +102,16 @@ export class MarketController {
 
     @Query('range')
     range: MarketRange = '24h',
+
+    @Query('exchange')
+    exchange: ExchangeName = 'binance',
   ): Promise<MarketResponseDto> {
     return this.marketService.getSignals(
       symbol,
 
       range,
+
+      exchange,
     );
   }
 }

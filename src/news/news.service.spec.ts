@@ -127,33 +127,24 @@ describe('NewsService', () => {
       const mockedAxios = jest.mocked(axios);
       mockedAxios.get.mockResolvedValue({
         data: {
-          status: 'success',
-          result: {
-            data: [
-              {
-                id: '1',
-                title: 'Bitcoin Halving',
-                description: 'Next BTC halving event',
-                coinName: 'Bitcoin',
-                coinSymbol: 'BTC',
-                date: '2025-01-01',
-                source: 'CoinMarketCal',
-                sourceUrl: 'https://example.com/event/1',
-                tags: [{ name: 'mining' }, { name: 'supply' }],
-              },
-              {
-                id: '2',
-                title: 'ETH Shanghai',
-                description: 'Ethereum Shanghai upgrade',
-                coinName: 'Ethereum',
-                coinSymbol: 'ETH',
-                date: '2024-04-12',
-                source: 'CoinMarketCal',
-                sourceUrl: 'https://example.com/event/2',
-                tags: [{ name: 'upgrade' }],
-              },
-            ],
-          },
+          data: [
+            {
+              id: '1',
+              title: 'Bitcoin Halving',
+              description: 'Next BTC halving event',
+              date: '2025-01-01',
+              sourceUrl: 'https://example.com/event/1',
+              coins: [{ slug: 'bitcoin', symbol: 'BTC', name: 'Bitcoin' }],
+            },
+            {
+              id: '2',
+              title: 'ETH Shanghai',
+              description: 'Ethereum Shanghai upgrade',
+              date: '2024-04-12',
+              sourceUrl: 'https://example.com/event/2',
+              coins: [{ slug: 'ethereum', symbol: 'ETH', name: 'Ethereum' }],
+            },
+          ],
         },
       });
 
@@ -165,7 +156,6 @@ describe('NewsService', () => {
       expect(result.data[0].source).toBe('CoinMarketCal');
       expect(result.data[0].coinName).toBe('Bitcoin');
       expect(result.data[0].coinSymbol).toBe('BTC');
-      expect(result.data[0].tags).toBe('mining,supply');
 
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://api.coinmarketcal.com/v2/events',
@@ -180,22 +170,16 @@ describe('NewsService', () => {
       const mockedAxios = jest.mocked(axios);
       mockedAxios.get.mockResolvedValue({
         data: {
-          status: 'success',
-          result: {
-            data: [
-              {
-                id: '1',
-                title: 'Bitcoin Halving',
-                description: 'Next BTC halving',
-                coinName: 'Bitcoin',
-                coinSymbol: 'BTC',
-                date: '2025-01-01',
-                source: 'CoinMarketCal',
-                sourceUrl: 'https://example.com/1',
-                tags: [],
-              },
-            ],
-          },
+          data: [
+            {
+              id: '1',
+              title: 'Bitcoin Halving',
+              description: 'Next BTC halving',
+              date: '2025-01-01',
+              sourceUrl: 'https://example.com/1',
+              coins: [{ slug: 'bitcoin', symbol: 'BTC', name: 'Bitcoin' }],
+            },
+          ],
         },
       });
 
@@ -208,7 +192,7 @@ describe('NewsService', () => {
         expect.any(String),
         expect.objectContaining({
           params: expect.objectContaining({
-            coins: 'Bitcoin',
+            coins: 'bitcoin',
           }),
         }),
       );
