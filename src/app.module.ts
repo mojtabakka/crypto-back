@@ -23,6 +23,8 @@ import { TVLAnalysisModule } from './tvl-analysis/tvl-analysis.module';
 import { TVLValidationModule } from './tvl-validation/tvl-validation.module';
 import { ProtocolAnalysisModule } from './protocol-analysis/protocol-analysis.module';
 import { CoinGlassModule } from './coinglass/coinglass.module';
+import { PressureScanModule } from './pressure-scan/pressure-scan.module';
+import { VolumeMarketCapModule } from './volume-marketcap/volume-marketcap.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -64,6 +66,7 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     TVLValidationModule,
     ProtocolAnalysisModule,
     CoinGlassModule,
+    PressureScanModule,
   ],
   controllers: [AppController],
   providers: [AppService],
