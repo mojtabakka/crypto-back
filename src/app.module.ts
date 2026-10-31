@@ -25,6 +25,9 @@ import { ProtocolAnalysisModule } from './protocol-analysis/protocol-analysis.mo
 import { CoinGlassModule } from './coinglass/coinglass.module';
 import { PressureScanModule } from './pressure-scan/pressure-scan.module';
 import { VolumeMarketCapModule } from './volume-marketcap/volume-marketcap.module';
+import { IchimokuScannerModule } from './ichimoku-scanner/ichimoku.module';
+import { IchimokuLaggingSpanModule } from './ichimoku-lagging-span/ichimoku-lagging-span.module';
+import { IchimokuCombinedModule } from './ichimoku-combined/ichimoku-combined.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -67,6 +70,10 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     ProtocolAnalysisModule,
     CoinGlassModule,
     PressureScanModule,
+    VolumeMarketCapModule,
+    IchimokuScannerModule,
+    IchimokuLaggingSpanModule,
+    IchimokuCombinedModule,
   ],
   controllers: [AppController],
   providers: [AppService],
