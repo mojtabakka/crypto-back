@@ -11,6 +11,13 @@ import { BinanceOpenInterest } from 'src/market/types/binance-open-interest.type
 
 import { RedisService } from 'src/redis/redis.service';
 
+export interface BybitTicker {
+  symbol: string;
+  lastPrice: string;
+  volume24h: string;
+  turnover24h: string;
+}
+
 @Injectable()
 export class BybitService {
   private readonly logger = new Logger(BybitService.name);
@@ -18,6 +25,7 @@ export class BybitService {
   private readonly FUNDING_CACHE_TTL = 7 * 24 * 60 * 60;
   private readonly KLINES_CACHE_TTL = 5 * 60;
   private readonly OI_CACHE_TTL = 5 * 60;
+  private readonly TICKERS_CACHE_TTL = 60;
 
   private readonly baseUrl = 'https://api.bybit.com';
 
@@ -54,22 +62,19 @@ export class BybitService {
 
     while (currentStartTime < endTime) {
       try {
-        const response = await axios.get(
-          `${this.baseUrl}/v5/market/kline`,
-          {
-            params: {
-              category: 'linear',
-              symbol,
-              interval: bybitInterval,
-              start: currentStartTime,
-              end: endTime,
-              limit,
-            },
-            headers: {
-              'User-Agent': 'Mozilla/5.0',
-            },
+        const response = await axios.get(`${this.baseUrl}/v5/market/kline`, {
+          params: {
+            category: 'linear',
+            symbol,
+            interval: bybitInterval,
+            start: currentStartTime,
+            end: endTime,
+            limit,
           },
-        );
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+          },
+        });
 
         const result = response.data?.result?.list;
         if (!result || result.length === 0) break;
@@ -97,7 +102,9 @@ export class BybitService {
         if (result.length < limit) break;
       } catch (error) {
         if (axios.isAxiosError(error) && error.response?.status === 403) {
-          this.logger.warn(`Bybit klines: symbol ${symbol} not available (403)`);
+          this.logger.warn(
+            `Bybit klines: symbol ${symbol} not available (403)`,
+          );
         } else {
           this.logger.warn(`Bybit klines fetch failed for ${symbol}: ${error}`);
         }
@@ -107,6 +114,33 @@ export class BybitService {
 
     await this.redisService.setJson(cacheKey, allKlines, this.KLINES_CACHE_TTL);
     return allKlines;
+  }
+
+  async getTickers(): Promise<BybitTicker[]> {
+    const cacheKey = 'bybit:tickers:linear';
+
+    const cached = await this.redisService.getJson<BybitTicker[]>(cacheKey);
+    if (cached && cached.length > 0) {
+      return cached;
+    }
+
+    try {
+      const response = await axios.get(`${this.baseUrl}/v5/market/tickers`, {
+        params: { category: 'linear' },
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+        },
+      });
+
+      const result = response.data?.result?.list;
+      if (!result) return [];
+
+      await this.redisService.setJson(cacheKey, result, this.TICKERS_CACHE_TTL);
+      return result;
+    } catch (error) {
+      this.logger.warn(`Bybit tickers fetch failed: ${error}`);
+      return [];
+    }
   }
 
   async getOpenInterest(
@@ -165,7 +199,9 @@ export class BybitService {
       if (axios.isAxiosError(error) && error.response?.status === 403) {
         this.logger.warn(`Bybit OI: symbol ${symbol} not available (403)`);
       } else {
-        this.logger.warn(`Bybit open interest fetch failed for ${symbol}: ${error}`);
+        this.logger.warn(
+          `Bybit open interest fetch failed for ${symbol}: ${error}`,
+        );
       }
     }
 
@@ -214,7 +250,11 @@ export class BybitService {
           apiData.push(fundingRate);
 
           const cacheKey = `bybit:funding:${symbol}:${item.fundingRateTimestamp}`;
-          await this.redisService.setJson(cacheKey, fundingRate, this.FUNDING_CACHE_TTL);
+          await this.redisService.setJson(
+            cacheKey,
+            fundingRate,
+            this.FUNDING_CACHE_TTL,
+          );
         }
 
         cursor = result.nextPageToken;
@@ -223,7 +263,9 @@ export class BybitService {
       if (axios.isAxiosError(error) && error.response?.status === 403) {
         this.logger.warn(`Bybit funding: symbol ${symbol} not available (403)`);
       } else {
-        this.logger.warn(`Bybit funding rate fetch failed for ${symbol}: ${error}`);
+        this.logger.warn(
+          `Bybit funding rate fetch failed for ${symbol}: ${error}`,
+        );
       }
     }
 
@@ -295,14 +337,20 @@ export class BybitService {
     } catch (error) {
       if (axios.isAxiosError(error)) {
         if (error.response?.status === 403) {
-          this.logger.warn(`Bybit liquidation: symbol ${symbol} not available (403)`);
+          this.logger.warn(
+            `Bybit liquidation: symbol ${symbol} not available (403)`,
+          );
         } else if (error.response?.status === 404) {
           this.logger.debug(`Bybit liquidation: no data for ${symbol} (404)`);
         } else {
-          this.logger.warn(`Bybit liquidation fetch failed for ${symbol}: ${error}`);
+          this.logger.warn(
+            `Bybit liquidation fetch failed for ${symbol}: ${error}`,
+          );
         }
       } else {
-        this.logger.warn(`Bybit liquidation fetch failed for ${symbol}: ${error}`);
+        this.logger.warn(
+          `Bybit liquidation fetch failed for ${symbol}: ${error}`,
+        );
       }
       return [];
     }

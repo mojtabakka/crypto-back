@@ -23,6 +23,7 @@ export class BinanceService {
   private readonly FUNDING_CACHE_TTL = 7 * 24 * 60 * 60; // 7 days
   private readonly KLINES_CACHE_TTL = 5 * 60; // 5 minutes
   private readonly OI_CACHE_TTL = 5 * 60; // 5 minutes
+  private readonly TICKERS_CACHE_TTL = 60; // 1 minute
 
   // Rate limiting: 2000 requests per minute (under 2400 limit)
   private readonly MAX_REQUESTS_PER_MINUTE = 2000;
@@ -40,7 +41,7 @@ export class BinanceService {
   private async rateLimit<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.requestQueue.push({
-        resolve: resolve as (value: unknown) => void,
+        resolve: resolve,
         reject,
         fn,
       });
@@ -107,18 +108,15 @@ export class BinanceService {
 
     while (currentStartTime < endTime) {
       const response = await this.rateLimit(() =>
-        axios.get<BinanceKline[]>(
-          `${this.spotBaseUrl}/api/v3/klines`,
-          {
-            params: {
-              symbol,
-              interval,
-              startTime: currentStartTime,
-              endTime,
-              limit,
-            },
+        axios.get<BinanceKline[]>(`${this.spotBaseUrl}/api/v3/klines`, {
+          params: {
+            symbol,
+            interval,
+            startTime: currentStartTime,
+            endTime,
+            limit,
           },
-        ),
+        }),
       );
 
       const klines = response.data;
@@ -167,9 +165,8 @@ export class BinanceService {
     let currentStartTime = startTime;
 
     while (currentStartTime < endTime) {
-      const response = await axios.get<BinanceKline[]>(
-        `${this.futuresBaseUrl}/fapi/v1/klines`,
-        {
+      const response = await this.rateLimit(() =>
+        axios.get<BinanceKline[]>(`${this.futuresBaseUrl}/fapi/v1/klines`, {
           params: {
             symbol,
             interval,
@@ -177,7 +174,7 @@ export class BinanceService {
             endTime,
             limit,
           },
-        },
+        }),
       );
 
       const klines = response.data;
@@ -370,6 +367,35 @@ export class BinanceService {
       }
 
       throw error;
+    }
+  }
+
+  async getTickers(): Promise<
+    Array<{ symbol: string; volume: string; lastPrice: string }>
+  > {
+    const cacheKey = 'binance:tickers:futures';
+
+    const cached =
+      await this.redisService.getJson<
+        Array<{ symbol: string; volume: string; lastPrice: string }>
+      >(cacheKey);
+    if (cached && cached.length > 0) {
+      return cached;
+    }
+
+    try {
+      const response = await axios.get<
+        Array<{ symbol: string; volume: string; lastPrice: string }>
+      >(`${this.futuresBaseUrl}/fapi/v1/ticker/24hr`, {
+        timeout: 15000,
+      });
+
+      const data = response.data ?? [];
+      await this.redisService.setJson(cacheKey, data, this.TICKERS_CACHE_TTL);
+      return data;
+    } catch (error) {
+      this.logger.warn(`Binance tickers fetch failed: ${error}`);
+      return [];
     }
   }
 }

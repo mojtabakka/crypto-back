@@ -1,11 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { BinanceService } from 'src/binance/binance.service';
+import { MultiExchangeKlineService } from 'src/exchange/multi-exchange-kline.service';
 import { FuturesSymbolsService } from 'src/futures-symbols/futures-symbols.service';
+import { VolumeMarketCapService } from 'src/volume-marketcap/volume-marketcap.service';
 import type {
   IchimokuCombinedScanParams,
   IchimokuCombinedScanResult,
   IchimokuCombinedSignal,
 } from './types/ichimoku-combined.types';
+
+type SupportedExchange = 'binance' | 'bybit' | 'mexc' | 'toobit';
 
 const LOOKBACK_DAYS = 200;
 const MIN_CANDLES = 100;
@@ -39,8 +42,9 @@ export class IchimokuCombinedService {
   private readonly logger = new Logger(IchimokuCombinedService.name);
 
   constructor(
-    private readonly binanceService: BinanceService,
+    private readonly klineService: MultiExchangeKlineService,
     private readonly futuresSymbolsService: FuturesSymbolsService,
+    private readonly volumeMarketCapService: VolumeMarketCapService,
   ) {}
 
   async scan(
@@ -61,10 +65,14 @@ export class IchimokuCombinedService {
     const targetSymbols = limit > 0 ? symbols.slice(0, limit) : symbols;
 
     const interval = params.interval ?? '1d';
+    const exchange = (params.exchange as SupportedExchange) ?? 'binance';
 
     this.logger.log(
-      `Ichimoku combined scan started for ${targetSymbols.length} symbols (${interval})`,
+      `Ichimoku combined scan started for ${targetSymbols.length} symbols (${interval}, exchange=${exchange})`,
     );
+
+    const marketData =
+      await this.volumeMarketCapService.getCoinMarketMap(exchange);
 
     const concurrency = 5;
     const matches: IchimokuCombinedSignal[] = [];
@@ -72,7 +80,9 @@ export class IchimokuCombinedService {
     for (let i = 0; i < targetSymbols.length; i += concurrency) {
       const batch = targetSymbols.slice(i, i + concurrency);
       const results = await Promise.all(
-        batch.map((sym) => this.evaluateSymbol(sym, interval)),
+        batch.map((sym) =>
+          this.evaluateSymbol(sym, interval, exchange, marketData),
+        ),
       );
       for (const signal of results) {
         if (signal) matches.push(signal);
@@ -84,6 +94,7 @@ export class IchimokuCombinedService {
     return {
       timestamp: new Date().toISOString(),
       interval,
+      exchange,
       totalScanned: targetSymbols.length,
       matches,
     };
@@ -92,18 +103,21 @@ export class IchimokuCombinedService {
   async evaluateSymbol(
     symbol: string,
     interval: string,
+    exchange: SupportedExchange,
+    marketData: Map<string, { marketCap: number; volume24h: number }>,
   ): Promise<IchimokuCombinedSignal | null> {
     try {
       const now = Date.now();
       const lookbackDays = INTERVAL_LOOKBACK_DAYS[interval] ?? LOOKBACK_DAYS;
       const startTime = now - lookbackDays * 24 * 60 * 60 * 1000;
 
-      const klines = await this.binanceService.getFuturesKlines(
+      const klines = await this.fetchFuturesKlines(
         symbol,
         interval,
         startTime,
         now,
         1000,
+        exchange,
       );
 
       if (!klines || klines.length < MIN_CANDLES) {
@@ -118,16 +132,34 @@ export class IchimokuCombinedService {
         close: parseFloat(k[4]),
       }));
 
-      const signal = this.computeCombined(symbol, candles);
+      const signal = this.computeCombined(symbol, candles, marketData);
       return signal;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       this.logger.warn(
-        `Ichimoku combined evaluation failed for ${symbol}`,
+        `Ichimoku combined evaluation failed for ${symbol} on ${exchange}`,
         msg,
       );
       return null;
     }
+  }
+
+  private async fetchFuturesKlines(
+    symbol: string,
+    interval: string,
+    startTime: number,
+    endTime: number,
+    limit: number,
+    exchange: SupportedExchange,
+  ) {
+    return this.klineService.getFuturesKlines(
+      symbol,
+      interval,
+      startTime,
+      endTime,
+      limit,
+      exchange,
+    );
   }
 
   private computeCombined(
@@ -139,6 +171,7 @@ export class IchimokuCombinedService {
       low: number;
       close: number;
     }[],
+    marketData: Map<string, { marketCap: number; volume24h: number }>,
   ): IchimokuCombinedSignal | null {
     const n = candles.length;
     if (n < MIN_CANDLES) return null;
@@ -205,6 +238,8 @@ export class IchimokuCombinedService {
       }
     }
 
+    const marketInfo = marketData.get(symbol) ?? { marketCap: 0, volume24h: 0 };
+
     return {
       symbol,
       price,
@@ -218,6 +253,13 @@ export class IchimokuCombinedService {
       crossPriceHigh: mostRecentCross?.crossPriceHigh ?? currentPriceHigh,
       barsAgo: mostRecentCross?.barsAgo ?? 0,
       signal: 'BUY',
+      score: 0,
+      volumeRatio: 0,
+      oiChangePct: 0,
+      fundingRate: 0,
+      priceChangePct: 0,
+      marketCap: marketInfo.marketCap,
+      volume24h: marketInfo.volume24h,
     };
   }
 

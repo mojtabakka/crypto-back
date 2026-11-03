@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { MarketModule } from './market/market.module';
 import { ExchangeModule } from './exchange/exchange.module';
+import { MultiExchangeKlineModule } from './exchange/multi-exchange-kline.module';
 import { LiquidationModule } from './liquidation/liquidation.module';
 import { MarketSignalModule } from './market-signal/market-signal.module';
 import { MarketScannerModule } from './market-scanner/market-scanner.module';
@@ -12,8 +13,6 @@ import { RedisModule } from './redis/redis.module';
 import { NewsModule } from './news/news.module';
 import { FuturesSymbolsModule } from './futures-symbols/futures-symbols.module';
 import { WatchlistModule } from './watchlist/watchlist.module';
-import { FourHourSignalModule } from './four-hour-signal/four-hour-signal.module';
-import { LongShortSignalModule } from './long-short-signal/long-short-signal.module';
 import { NotificationModule } from './notification/notification.module';
 import { KlineModule } from './kline/kline.module';
 import { VolumeProfileModule } from './volume-profile/volume-profile.module';
@@ -28,11 +27,11 @@ import { VolumeMarketCapModule } from './volume-marketcap/volume-marketcap.modul
 import { IchimokuScannerModule } from './ichimoku-scanner/ichimoku.module';
 import { IchimokuLaggingSpanModule } from './ichimoku-lagging-span/ichimoku-lagging-span.module';
 import { IchimokuCombinedModule } from './ichimoku-combined/ichimoku-combined.module';
+import { IchimokuCombinedSchedulerModule } from './ichimoku-combined-scheduler/ichimoku-combined-scheduler.module';
+import { IchimokuBaseConversionModule } from './ichimoku-base-conversion/ichimoku-base-conversion.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
-import { FourHourSignalEntity } from './four-hour-signal/entities/four-hour-signal.entity';
-import { LongShortSignalEntity } from './long-short-signal/entities/long-short-signal.entity';
 import { KlineEntity } from './kline/entities/kline.entity';
 import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.entity';
 
@@ -45,21 +44,26 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
       username: process.env.DB_USER || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'crypto_volume',
-      entities: [FuturesSymbolEntity, WatchlistEntity, FourHourSignalEntity, LongShortSignalEntity, KlineEntity, VolumeProfileEntity, NewListingEntity],
+      entities: [
+        FuturesSymbolEntity,
+        WatchlistEntity,
+        KlineEntity,
+        VolumeProfileEntity,
+        NewListingEntity,
+      ],
       synchronize: true,
     }),
     ScheduleModule.forRoot(),
     RedisModule,
     MarketModule,
     ExchangeModule,
+    MultiExchangeKlineModule,
     LiquidationModule,
     MarketSignalModule,
     MarketScannerModule,
     NewsModule,
     FuturesSymbolsModule,
     WatchlistModule,
-    FourHourSignalModule,
-    LongShortSignalModule,
     NotificationModule,
     KlineModule,
     VolumeProfileModule,
@@ -74,6 +78,8 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     IchimokuScannerModule,
     IchimokuLaggingSpanModule,
     IchimokuCombinedModule,
+    IchimokuCombinedSchedulerModule,
+    IchimokuBaseConversionModule,
   ],
   controllers: [AppController],
   providers: [AppService],

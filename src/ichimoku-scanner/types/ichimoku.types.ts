@@ -39,6 +39,7 @@ export interface IchimokuSignal {
 export interface IchimokuScanResult {
   timestamp: string;
   interval: string;
+  exchange: string;
   totalScanned: number;
   matches: IchimokuSignal[];
 }
@@ -47,4 +48,5 @@ export interface IchimokuScanParams {
   symbols?: string;
   limit?: number;
   interval?: string;
+  exchange?: string;
 }

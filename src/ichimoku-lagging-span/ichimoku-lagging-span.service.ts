@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { BinanceService } from 'src/binance/binance.service';
+import { MultiExchangeKlineService } from 'src/exchange/multi-exchange-kline.service';
 import { FuturesSymbolsService } from 'src/futures-symbols/futures-symbols.service';
 import type {
   IchimokuLaggingSpanScanParams,
   IchimokuLaggingSpanScanResult,
   IchimokuLaggingSpanSignal,
 } from './types/ichimoku-lagging-span.types';
+
+type SupportedExchange = 'binance' | 'bybit' | 'mexc' | 'toobit';
 
 const LOOKBACK_DAYS = 200;
 const MIN_CANDLES = 100;
@@ -39,7 +41,7 @@ export class IchimokuLaggingSpanService {
   private readonly logger = new Logger(IchimokuLaggingSpanService.name);
 
   constructor(
-    private readonly binanceService: BinanceService,
+    private readonly klineService: MultiExchangeKlineService,
     private readonly futuresSymbolsService: FuturesSymbolsService,
   ) {}
 
@@ -61,9 +63,10 @@ export class IchimokuLaggingSpanService {
     const targetSymbols = limit > 0 ? symbols.slice(0, limit) : symbols;
 
     const interval = params.interval ?? '1d';
+    const exchange = (params.exchange as SupportedExchange) ?? 'binance';
 
     this.logger.log(
-      `Ichimoku lagging-span scan started for ${targetSymbols.length} symbols (${interval})`,
+      `Ichimoku lagging-span scan started for ${targetSymbols.length} symbols (${interval}, exchange=${exchange})`,
     );
 
     const concurrency = 5;
@@ -72,7 +75,7 @@ export class IchimokuLaggingSpanService {
     for (let i = 0; i < targetSymbols.length; i += concurrency) {
       const batch = targetSymbols.slice(i, i + concurrency);
       const results = await Promise.all(
-        batch.map((sym) => this.evaluateSymbol(sym, interval)),
+        batch.map((sym) => this.evaluateSymbol(sym, interval, exchange)),
       );
       for (const signal of results) {
         if (signal) matches.push(signal);
@@ -84,6 +87,7 @@ export class IchimokuLaggingSpanService {
     return {
       timestamp: new Date().toISOString(),
       interval,
+      exchange,
       totalScanned: targetSymbols.length,
       matches,
     };
@@ -92,18 +96,20 @@ export class IchimokuLaggingSpanService {
   async evaluateSymbol(
     symbol: string,
     interval: string,
+    exchange: SupportedExchange,
   ): Promise<IchimokuLaggingSpanSignal | null> {
     try {
       const now = Date.now();
       const lookbackDays = INTERVAL_LOOKBACK_DAYS[interval] ?? LOOKBACK_DAYS;
       const startTime = now - lookbackDays * 24 * 60 * 60 * 1000;
 
-      const klines = await this.binanceService.getFuturesKlines(
+      const klines = await this.klineService.getFuturesKlines(
         symbol,
         interval,
         startTime,
         now,
         1000,
+        exchange,
       );
 
       if (!klines || klines.length < MIN_CANDLES) {

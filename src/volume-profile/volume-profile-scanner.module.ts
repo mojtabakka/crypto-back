@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ScheduleModule } from '@nestjs/schedule';
-
 import { VolumeProfileScannerService } from './volume-profile-scanner.service';
 import { VolumeProfileScannerController } from './volume-profile-scanner.controller';
 import { VolumeProfileEntity } from './entities/volume-profile.entity';
@@ -13,7 +11,6 @@ import { NotificationModule } from 'src/notification/notification.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([VolumeProfileEntity, KlineEntity]),
-    ScheduleModule.forRoot(),
     FuturesSymbolsModule,
     ExchangeModule,
     NotificationModule,

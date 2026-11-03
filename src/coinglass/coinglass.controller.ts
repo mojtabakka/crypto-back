@@ -13,13 +13,17 @@ export class CoinGlassController {
 
   @Get('longs')
   async getLongs(@Query('limit') limit?: string) {
-    const result = await this.coinglassService.scanCoinGlassSignals(limit ? parseInt(limit, 10) : 200);
+    const result = await this.coinglassService.scanCoinGlassSignals(
+      limit ? parseInt(limit, 10) : 200,
+    );
     return result.longs;
   }
 
   @Get('shorts')
   async getShorts(@Query('limit') limit?: string) {
-    const result = await this.coinglassService.scanCoinGlassSignals(limit ? parseInt(limit, 10) : 200);
+    const result = await this.coinglassService.scanCoinGlassSignals(
+      limit ? parseInt(limit, 10) : 200,
+    );
     return result.shorts;
   }
 

@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -22,11 +21,6 @@ export class VolumeProfileScannerService {
     private readonly exchangeService: ExchangeService,
     private readonly notificationGateway: NotificationGateway,
   ) {}
-
-  @Cron('0 */2 * * *')
-  async handleCron() {
-    await this.scanAllSymbols();
-  }
 
   async scanAllSymbols(limit = 100): Promise<VolumeProfileEntity[]> {
     const startTime = Date.now();

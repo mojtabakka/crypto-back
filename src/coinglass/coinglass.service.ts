@@ -17,7 +17,13 @@ export interface CoinGlassSymbolData {
 
 export interface CoinGlassSignal {
   symbol: string;
-  signal: 'HEALTHY_BULLISH' | 'STRONG_BULLISH' | 'LONG_PUMP' | 'NORMAL_CORRECTION' | 'LONG_FLUSH' | 'NEUTRAL';
+  signal:
+    | 'HEALTHY_BULLISH'
+    | 'STRONG_BULLISH'
+    | 'LONG_PUMP'
+    | 'NORMAL_CORRECTION'
+    | 'LONG_FLUSH'
+    | 'NEUTRAL';
   direction: 'LONG' | 'SHORT' | 'NEUTRAL';
   score: number;
   data: CoinGlassSymbolData;
@@ -46,20 +52,24 @@ export class CoinGlassService {
 
   private async fetch<T>(endpoint: string): Promise<T | null> {
     if (!this.apiKey) {
-      this.logger.warn('COINGLASS_API_KEY is not set. Skipping CoinGlass data fetch.');
+      this.logger.warn(
+        'COINGLASS_API_KEY is not set. Skipping CoinGlass data fetch.',
+      );
       return null;
     }
 
     try {
       const response = await fetch(`${this.baseUrl}${endpoint}`, {
         headers: {
-          'accept': 'application/json',
+          accept: 'application/json',
           'coinglass.secretKey': this.apiKey,
         },
       });
 
       if (!response.ok) {
-        this.logger.error(`CoinGlass API error: ${response.status} ${response.statusText} for ${endpoint}`);
+        this.logger.error(
+          `CoinGlass API error: ${response.status} ${response.statusText} for ${endpoint}`,
+        );
         return null;
       }
 
@@ -73,7 +83,10 @@ export class CoinGlassService {
     }
   }
 
-  async getGlobalIndices(): Promise<{ fearGreedIndex: number | null; altcoinSeasonIndex: number | null }> {
+  async getGlobalIndices(): Promise<{
+    fearGreedIndex: number | null;
+    altcoinSeasonIndex: number | null;
+  }> {
     const [fearGreed, altcoinSeason] = await Promise.all([
       this.fetch<{ data: { value: number } }>('/global/fear-greed-index'),
       this.fetch<{ data: { value: number } }>('/global/altcoin-season-index'),
@@ -86,7 +99,19 @@ export class CoinGlassService {
   }
 
   async getFuturesSymbols(limit = 200): Promise<CoinGlassSymbolData[]> {
-    const data = await this.fetch<{ data: Array<{ symbol: string; price: number; marketCap: number; openInterest: number; fundingRate: number; volume24h: number; liquidation24h: number; priceChange1h: number; priceChange24h: number }> }>(`/futures/market-symbols?limit=${limit}`);
+    const data = await this.fetch<{
+      data: Array<{
+        symbol: string;
+        price: number;
+        marketCap: number;
+        openInterest: number;
+        fundingRate: number;
+        volume24h: number;
+        liquidation24h: number;
+        priceChange1h: number;
+        priceChange24h: number;
+      }>;
+    }>(`/futures/market-symbols?limit=${limit}`);
 
     if (!data?.data) return [];
 
@@ -107,7 +132,13 @@ export class CoinGlassService {
   }
 
   private classifySignal(data: CoinGlassSymbolData): CoinGlassSignal | null {
-    const { priceChange1h, priceChange24h, openInterest, fundingRate, volume24h } = data;
+    const {
+      priceChange1h,
+      priceChange24h,
+      openInterest,
+      fundingRate,
+      volume24h,
+    } = data;
 
     // Thresholds
     const priceUp = priceChange1h > 0;
@@ -129,15 +160,17 @@ export class CoinGlassService {
     const fundingNegative = fundingRate < 0;
 
     // HEALTHY_BULLISH: Price ↑ + OI ↑ + Volume ↑ + Funding →/↓
-    if (
-      priceUp && oiUp && volUp &&
-      (fundingNeutral || fundingNegative)
-    ) {
+    if (priceUp && oiUp && volUp && (fundingNeutral || fundingNegative)) {
       return {
         symbol: data.symbol,
         signal: 'HEALTHY_BULLISH',
         direction: 'LONG',
-        score: this.calculateScore(priceChange1h, openInterest, volume24h, fundingRate),
+        score: this.calculateScore(
+          priceChange1h,
+          openInterest,
+          volume24h,
+          fundingRate,
+        ),
         data,
         reason: 'صعود سالم؛ پول و پوزیشن جدید وارد میشه ولی لانگ‌ها شلوغ نیستن',
       };
@@ -145,56 +178,75 @@ export class CoinGlassService {
 
     // STRONG_BULLISH: Price ↑↑ + OI ↑↑ + Volume ↑ + Funding ↑/→
     if (
-      priceStrongUp && oiStrongUp && volUp &&
+      priceStrongUp &&
+      oiStrongUp &&
+      volUp &&
       (fundingPositive || fundingNeutral)
     ) {
       return {
         symbol: data.symbol,
         signal: 'STRONG_BULLISH',
         direction: 'LONG',
-        score: this.calculateScore(priceChange1h, openInterest, volume24h, fundingRate) + 10,
+        score:
+          this.calculateScore(
+            priceChange1h,
+            openInterest,
+            volume24h,
+            fundingRate,
+          ) + 10,
         data,
         reason: 'روند صعودی قوی',
       };
     }
 
     // LONG_PUMP: Price ↑↑ + OI ↑↑ + Volume ↑↑ + Funding ↑↑
-    if (
-      priceStrongUp && oiStrongUp && volStrongUp && fundingStrongPositive
-    ) {
+    if (priceStrongUp && oiStrongUp && volStrongUp && fundingStrongPositive) {
       return {
         symbol: data.symbol,
         signal: 'LONG_PUMP',
         direction: 'LONG',
-        score: this.calculateScore(priceChange1h, openInterest, volume24h, fundingRate) + 20,
+        score:
+          this.calculateScore(
+            priceChange1h,
+            openInterest,
+            volume24h,
+            fundingRate,
+          ) + 20,
         data,
         reason: 'پامپ همراه با ورود شدید پوزیشن‌ها؛ سودده ولی پرریسک',
       };
     }
 
     // NORMAL_CORRECTION: Price ↓ + OI ↓ + Volume ↓ + Funding ↓
-    if (
-      priceDown && oiDown && !volUp && fundingNegative
-    ) {
+    if (priceDown && oiDown && !volUp && fundingNegative) {
       return {
         symbol: data.symbol,
         signal: 'NORMAL_CORRECTION',
         direction: 'SHORT',
-        score: this.calculateScore(priceChange1h, openInterest, volume24h, fundingRate),
+        score: this.calculateScore(
+          priceChange1h,
+          openInterest,
+          volume24h,
+          fundingRate,
+        ),
         data,
         reason: 'اصلاح طبیعی',
       };
     }
 
     // LONG_FLUSH: Price ↓↓ + OI ↓↓ + Volume ↑ + Funding ↓
-    if (
-      priceStrongDown && oiStrongDown && volUp && fundingNegative
-    ) {
+    if (priceStrongDown && oiStrongDown && volUp && fundingNegative) {
       return {
         symbol: data.symbol,
         signal: 'LONG_FLUSH',
         direction: 'SHORT',
-        score: this.calculateScore(priceChange1h, openInterest, volume24h, fundingRate) + 15,
+        score:
+          this.calculateScore(
+            priceChange1h,
+            openInterest,
+            volume24h,
+            fundingRate,
+          ) + 15,
         data,
         reason: 'تخلیه لانگ‌ها',
       };
@@ -203,7 +255,12 @@ export class CoinGlassService {
     return null;
   }
 
-  private calculateScore(priceChange1h: number, oiChange: number, volumeChange: number, fundingRate: number): number {
+  private calculateScore(
+    priceChange1h: number,
+    oiChange: number,
+    volumeChange: number,
+    fundingRate: number,
+  ): number {
     let score = 0;
     score += Math.abs(priceChange1h) * 10;
     score += Math.abs(oiChange) * 5;

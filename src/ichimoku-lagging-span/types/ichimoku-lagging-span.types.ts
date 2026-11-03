@@ -12,6 +12,7 @@ export interface IchimokuLaggingSpanSignal {
 export interface IchimokuLaggingSpanScanResult {
   timestamp: string;
   interval: string;
+  exchange: string;
   totalScanned: number;
   matches: IchimokuLaggingSpanSignal[];
 }
@@ -20,4 +21,5 @@ export interface IchimokuLaggingSpanScanParams {
   symbols?: string;
   limit?: number;
   interval?: string;
+  exchange?: string;
 }

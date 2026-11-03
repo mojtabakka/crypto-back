@@ -2,16 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { RedisService } from '../redis/redis.service';
+import { BinanceService } from 'src/binance/binance.service';
+import { BybitService } from 'src/bybit/bybit.service';
 import type {
   VolumeMarketCapMatch,
   VolumeMarketCapScanResult,
   LongSqueezeAssessment,
-  CoinGeckoMarketCoin,
 } from './types/volume-marketcap.types';
 
-const COINGECKO = 'https://api.coingecko.com/api/v3';
 const BINANCE_FAPI = 'https://fapi.binance.com';
-const PER_PAGE = 250;
 
 interface BinancePremiumIndex {
   symbol: string;
@@ -24,35 +23,21 @@ interface BinanceOpenInterest {
   openInterest: string;
 }
 
+export type SupportedExchange = 'binance' | 'bybit' | 'mexc' | 'toobit';
+
 @Injectable()
 export class VolumeMarketCapService {
   private readonly logger = new Logger(VolumeMarketCapService.name);
 
+  private readonly COIN_MARKET_CACHE_KEY = 'vmc:coin-market-map';
+  private readonly COIN_MARKET_CACHE_TTL = 60 * 60; // 1 hour
+
   constructor(
     private readonly httpService: HttpService,
     private readonly redisService: RedisService,
+    private readonly binanceService: BinanceService,
+    private readonly bybitService: BybitService,
   ) {}
-
-  private async fetchCoingeckoPage(
-    page: number,
-  ): Promise<CoinGeckoMarketCoin[]> {
-    const response = await firstValueFrom(
-      this.httpService.get<CoinGeckoMarketCoin[]>(
-        `${COINGECKO}/coins/markets`,
-        {
-          params: {
-            vs_currency: 'usd',
-            order: 'market_cap_desc',
-            per_page: PER_PAGE,
-            page,
-            sparkline: false,
-          },
-          timeout: 15000,
-        },
-      ),
-    );
-    return response.data ?? [];
-  }
 
   private async resolveBinanceSymbol(symbol: string): Promise<string | null> {
     const usdtSymbol = `${symbol.toUpperCase()}USDT`;
@@ -180,50 +165,35 @@ export class VolumeMarketCapService {
   ): Promise<VolumeMarketCapScanResult> {
     const allMatches: VolumeMarketCapMatch[] = [];
     let totalScanned = 0;
-    let pagesFetched = 0;
 
     for (let page = 1; page <= pages; page++) {
-      const coins = await this.fetchCoingeckoPage(page);
-      if (!coins || coins.length === 0) break;
+      const tickers = await this.bybitService.getTickers();
+      if (!tickers || tickers.length === 0) break;
 
-      pagesFetched++;
-      totalScanned += coins.length;
+      totalScanned += tickers.length;
 
-      for (const coin of coins) {
-        const mc = coin.market_cap ?? 0;
-        const vol = coin.total_volume ?? 0;
+      for (const ticker of tickers) {
+        const symbol = ticker.symbol.replace('USDT', '');
+        const vol = Number(ticker.volume24h) || 0;
 
-        if (mc < minMarketCap) continue;
-        if (mc === 0) continue;
-
-        const ratio = vol / mc;
-        if (ratio < minRatio) continue;
-
-        // Only include coins that trade on Binance futures
-        const binanceSymbol = await this.resolveBinanceSymbol(coin.symbol);
-        if (!binanceSymbol) continue;
+        if (vol === 0) continue;
 
         const match: VolumeMarketCapMatch = {
-          id: coin.id,
-          symbol: coin.symbol.toUpperCase(),
-          name: coin.name,
-          image: coin.image,
-          price: coin.current_price ?? null,
-          marketCap: mc,
+          id: symbol,
+          symbol,
+          name: symbol,
+          image: '',
+          price: Number(ticker.lastPrice) || null,
+          marketCap: 0,
           volume24h: vol,
-          ratio,
-          marketCapRank: coin.market_cap_rank ?? null,
-          priceChange24h: coin.price_change_percentage_24h ?? null,
-          circulatingSupply: coin.circulating_supply ?? null,
+          ratio: 0,
+          marketCapRank: null,
+          priceChange24h: null,
+          circulatingSupply: null,
         };
 
         if (includeSqueeze) {
-          match.longSqueeze = await this.assessLongSqueeze(
-            coin.symbol,
-            mc,
-            vol,
-            binanceSymbol,
-          );
+          match.longSqueeze = await this.assessLongSqueeze(symbol, 0, vol);
         }
 
         allMatches.push(match);
@@ -234,14 +204,62 @@ export class VolumeMarketCapService {
       if (allMatches.length >= limit) break;
     }
 
-    allMatches.sort((a, b) => b.ratio - a.ratio);
+    allMatches.sort((a, b) => b.volume24h - a.volume24h);
 
     return {
       timestamp: new Date().toISOString(),
       totalScanned,
-      pagesFetched,
+      pagesFetched: 1,
       criteria: { minRatio, minMarketCap },
       matches: allMatches,
     };
+  }
+
+  async getCoinMarketMap(
+    exchange: SupportedExchange = 'binance',
+  ): Promise<Map<string, { marketCap: number; volume24h: number }>> {
+    const cacheKey = `${this.COIN_MARKET_CACHE_KEY}:${exchange}`;
+
+    const cached =
+      await this.redisService.getJson<
+        Record<string, { marketCap: number; volume24h: number }>
+      >(cacheKey);
+    if (cached) {
+      return new Map(Object.entries(cached));
+    }
+
+    const map = new Map<string, { marketCap: number; volume24h: number }>();
+
+    if (exchange === 'binance') {
+      const tickers = await this.binanceService.getTickers();
+      for (const ticker of tickers) {
+        const symbol = ticker.symbol.replace('USDT', '');
+        map.set(symbol, {
+          marketCap: 0,
+          volume24h: Number(ticker.volume) || 0,
+        });
+      }
+    } else if (exchange === 'bybit') {
+      const tickers = await this.bybitService.getTickers();
+      for (const ticker of tickers) {
+        const symbol = ticker.symbol.replace('USDT', '');
+        map.set(symbol, {
+          marketCap: 0,
+          volume24h: Number(ticker.volume24h) || 0,
+        });
+      }
+    }
+
+    try {
+      await this.redisService.setJson(
+        cacheKey,
+        Object.fromEntries(map),
+        this.COIN_MARKET_CACHE_TTL,
+      );
+    } catch {
+      // ignore cache write errors
+    }
+
+    return map;
   }
 }
