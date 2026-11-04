@@ -29,6 +29,7 @@ import { IchimokuLaggingSpanModule } from './ichimoku-lagging-span/ichimoku-lagg
 import { IchimokuCombinedModule } from './ichimoku-combined/ichimoku-combined.module';
 import { IchimokuCombinedSchedulerModule } from './ichimoku-combined-scheduler/ichimoku-combined-scheduler.module';
 import { IchimokuBaseConversionModule } from './ichimoku-base-conversion/ichimoku-base-conversion.module';
+import { IchimokuChikouPullbackModule } from './ichimoku-chikou-pullback/ichimoku-chikou-pullback.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -80,6 +81,7 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     IchimokuCombinedModule,
     IchimokuCombinedSchedulerModule,
     IchimokuBaseConversionModule,
+    IchimokuChikouPullbackModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -4,8 +4,11 @@ import axios from 'axios';
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
-  private readonly botToken = process.env.TELEGRAM_BOT_TOKEN || '9046153053:AAF5DKIHEr4j6sNX3M2lY1IciyZKbtZeSc8';
-  private readonly botUsername = process.env.TELEGRAM_BOT_USERNAME || 'mr_binovabot';
+  private readonly botToken =
+    process.env.TELEGRAM_BOT_TOKEN ||
+    '9046153053:AAF5DKIHEr4j6sNX3M2lY1IciyZKbtZeSc8';
+  private readonly botUsername =
+    process.env.TELEGRAM_BOT_USERNAME || 'mr_binovabot';
   private readonly apiUrl = `https://api.telegram.org/bot${this.botToken}`;
 
   async sendMessage(chatId: string, text: string): Promise<boolean> {
@@ -47,7 +50,10 @@ export class TelegramService {
     }
   }
 
-  async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<boolean> {
+  async answerCallbackQuery(
+    callbackQueryId: string,
+    text?: string,
+  ): Promise<boolean> {
     try {
       await axios.post(`${this.apiUrl}/answerCallbackQuery`, {
         callback_query_id: callbackQueryId,
@@ -100,7 +106,15 @@ export class TelegramService {
     chatId: string,
     interval: string,
     exchange: string,
-    result: { totalScanned: number; matches: Array<{ symbol: string; price: number; barsAgo: number; score: number }> },
+    result: {
+      totalScanned: number;
+      matches: Array<{
+        symbol: string;
+        price: number;
+        barsAgo: number;
+        score: number;
+      }>;
+    },
   ): Promise<boolean> {
     const { matches, totalScanned } = result;
 
@@ -137,7 +151,10 @@ export class TelegramService {
     const messages: string[] = [];
 
     for (const line of lines) {
-      if (current.length + line.length + 1 + footer.length > MAX_MESSAGE_LENGTH) {
+      if (
+        current.length + line.length + 1 + footer.length >
+        MAX_MESSAGE_LENGTH
+      ) {
         messages.push(current + footer);
         current = header;
       }
@@ -149,8 +166,82 @@ export class TelegramService {
     for (let i = 0; i < messages.length; i++) {
       const isLast = i === messages.length - 1;
       const sent = isLast
-        ? await this.sendMessageWithKeyboard(chatId, messages[i], this.getQuickScanKeyboard())
+        ? await this.sendMessageWithKeyboard(
+            chatId,
+            messages[i],
+            this.getQuickScanKeyboard(),
+          )
         : await this.sendMessage(chatId, messages[i]);
+      if (!sent) success = false;
+    }
+    return success;
+  }
+
+  async sendChikouPullbackSignals(
+    chatId: string,
+    interval: string,
+    exchange: string,
+    result: {
+      totalScanned: number;
+      matches: Array<{
+        symbol: string;
+        price: number;
+        breakoutLevel: number;
+        pullbackDistancePct: number;
+        barsSinceCross: number;
+        chikouValue: number;
+        cloudTop: number;
+      }>;
+    },
+  ): Promise<boolean> {
+    const { matches, totalScanned } = result;
+
+    if (matches.length === 0) {
+      return this.sendMessage(
+        chatId,
+        `<b>📉 Chikou Pullback Scan</b>\n` +
+          `<b>Interval:</b> ${interval}\n` +
+          `<b>Exchange:</b> ${exchange.toUpperCase()}\n` +
+          `<b>Scanned:</b> ${totalScanned} symbols\n` +
+          `<b>Signals:</b> No Chikou pullback signals found.\n` +
+          `<i>${new Date().toLocaleString('fa-IR', { timeZone: 'Asia/Tehran' })}</i>`,
+      );
+    }
+
+    const header =
+      `<b>📉 Chikou Pullback Scan</b>\n` +
+      `<b>Interval:</b> ${interval}\n` +
+      `<b>Exchange:</b> ${exchange.toUpperCase()}\n` +
+      `<b>Scanned:</b> ${totalScanned} symbols\n` +
+      `<b>Signals found:</b> ${matches.length}\n\n`;
+
+    const lines = matches.map(
+      (s) =>
+        `• <b>${s.symbol}</b> — <i>$${s.price.toLocaleString()}</i> ` +
+        `(breakout $${s.breakoutLevel.toLocaleString()}, pullback ${s.pullbackDistancePct.toFixed(2)}%, ${s.barsSinceCross} bars ago)`,
+    );
+
+    const footer = `\n\n<i>${new Date().toLocaleString('fa-IR', { timeZone: 'Asia/Tehran' })}</i>`;
+
+    const MAX_MESSAGE_LENGTH = 3800;
+    let current = header;
+    const messages: string[] = [];
+
+    for (const line of lines) {
+      if (
+        current.length + line.length + 1 + footer.length >
+        MAX_MESSAGE_LENGTH
+      ) {
+        messages.push(current + footer);
+        current = header;
+      }
+      current += line + '\n';
+    }
+    messages.push(current + footer);
+
+    let success = true;
+    for (let i = 0; i < messages.length; i++) {
+      const sent = await this.sendMessage(chatId, messages[i]);
       if (!sent) success = false;
     }
     return success;
@@ -170,7 +261,9 @@ export class TelegramService {
     );
   }
 
-  private getQuickScanKeyboard(): Array<Array<{ text: string; callback_data: string }>> {
+  private getQuickScanKeyboard(): Array<
+    Array<{ text: string; callback_data: string }>
+  > {
     return [
       [
         { text: '🔍 Skān ۴ساعت', callback_data: 'scan_4h_binance' },
