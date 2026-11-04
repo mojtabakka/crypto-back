@@ -23,6 +23,7 @@ export class BinanceService {
   private readonly FUNDING_CACHE_TTL = 7 * 24 * 60 * 60; // 7 days
   private readonly KLINES_CACHE_TTL = 5 * 60; // 5 minutes
   private readonly OI_CACHE_TTL = 5 * 60; // 5 minutes
+  private readonly TICKERS_CACHE_TTL = 60; // 1 minute
 
   // Rate limiting: be conservative to avoid Binance IP bans.
   // 1200 requests per minute keeps us well under the 2400 weight/min limit
@@ -374,6 +375,35 @@ export class BinanceService {
       }
 
       throw error;
+    }
+  }
+
+  async getTickers(): Promise<
+    Array<{ symbol: string; volume: string; lastPrice: string }>
+  > {
+    const cacheKey = 'binance:tickers:futures';
+
+    const cached =
+      await this.redisService.getJson<
+        Array<{ symbol: string; volume: string; lastPrice: string }>
+      >(cacheKey);
+    if (cached && cached.length > 0) {
+      return cached;
+    }
+
+    try {
+      const response = await axios.get<
+        Array<{ symbol: string; volume: string; lastPrice: string }>
+      >(`${this.futuresBaseUrl}/fapi/v1/ticker/24hr`, {
+        timeout: 15000,
+      });
+
+      const data = response.data ?? [];
+      await this.redisService.setJson(cacheKey, data, this.TICKERS_CACHE_TTL);
+      return data;
+    } catch (error) {
+      this.logger.warn(`Binance tickers fetch failed: ${error}`);
+      return [];
     }
   }
 }

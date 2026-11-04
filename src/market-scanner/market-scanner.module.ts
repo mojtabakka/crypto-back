@@ -7,7 +7,12 @@ import { ExchangeModule } from 'src/exchange/exchange.module';
 import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
-  imports: [MarketSignalModule, FuturesSymbolsModule, ExchangeModule, NotificationModule],
+  imports: [
+    MarketSignalModule,
+    FuturesSymbolsModule,
+    ExchangeModule,
+    NotificationModule,
+  ],
   providers: [MarketScannerService],
   controllers: [MarketScannerController],
   exports: [MarketScannerService],

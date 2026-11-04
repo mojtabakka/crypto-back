@@ -1,5 +1,4 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
@@ -83,11 +82,6 @@ export class NewListingsService implements OnModuleInit {
     this.fetchNewListings().catch((err) =>
       this.logger.error('Initial fetch failed', err),
     );
-  }
-
-  @Cron('0 */4 * * *')
-  async handleCron() {
-    await this.fetchNewListings();
   }
 
   async fetchNewListings(): Promise<NewListingEntity[]> {

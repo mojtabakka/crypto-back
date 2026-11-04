@@ -75,7 +75,12 @@ export class ExchangeService {
     endTime: number,
     limit: number,
   ): Promise<BinanceKline[]> {
-    const cachedKlines = await this.klineService.getKlines(symbol, interval, startTime, endTime);
+    const cachedKlines = await this.klineService.getKlines(
+      symbol,
+      interval,
+      startTime,
+      endTime,
+    );
 
     if (cachedKlines.length > 0) {
       const oldestCached = cachedKlines[0][0];
@@ -115,7 +120,13 @@ export class ExchangeService {
       return allKlines;
     }
 
-    const klines = await this.binanceService.getFuturesKlines(symbol, interval, startTime, endTime, limit);
+    const klines = await this.binanceService.getFuturesKlines(
+      symbol,
+      interval,
+      startTime,
+      endTime,
+      limit,
+    );
     if (klines.length > 0) {
       await this.klineService.saveKlines(symbol, interval, klines);
     }

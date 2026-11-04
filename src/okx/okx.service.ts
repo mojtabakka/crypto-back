@@ -147,7 +147,9 @@ export class OkxService {
         }
       }
     } catch (error) {
-      this.logger.warn(`OKX open interest fetch failed for ${symbol}: ${error}`);
+      this.logger.warn(
+        `OKX open interest fetch failed for ${symbol}: ${error}`,
+      );
     }
 
     await this.redisService.setJson(cacheKey, allData, this.OI_CACHE_TTL);
@@ -187,7 +189,11 @@ export class OkxService {
           apiData.push(fundingRate);
 
           const cacheKey = `okx:funding:${symbol}:${item.fundingTime}`;
-          await this.redisService.setJson(cacheKey, fundingRate, this.FUNDING_CACHE_TTL);
+          await this.redisService.setJson(
+            cacheKey,
+            fundingRate,
+            this.FUNDING_CACHE_TTL,
+          );
         }
       }
     } catch (error) {
