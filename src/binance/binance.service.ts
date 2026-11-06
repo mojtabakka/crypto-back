@@ -40,7 +40,7 @@ export class BinanceService {
 
   constructor(private readonly redisService: RedisService) {}
 
-  private async rateLimit<T>(fn: () => Promise<T>): Promise<T> {
+  async rateLimit<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.requestQueue.push({
         resolve: resolve,
@@ -404,6 +404,49 @@ export class BinanceService {
     } catch (error) {
       this.logger.warn(`Binance tickers fetch failed: ${error}`);
       return [];
+    }
+  }
+
+  async get24hrTicker(
+    symbol: string,
+  ): Promise<{ priceChangePercent: number; lastPrice: string } | null> {
+    const cacheKey = `ticker24h:${symbol}`;
+
+    const cached = await this.redisService.getJson<{
+      priceChangePercent: number;
+      lastPrice: string;
+    }>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      const response = await this.rateLimit(() =>
+        axios.get<{
+          symbol: string;
+          priceChangePercent: string;
+          lastPrice: string;
+        }>(`${this.futuresBaseUrl}/fapi/v1/ticker/24hr`, {
+          params: { symbol },
+          timeout: 15000,
+        }),
+      );
+
+      const data = response.data;
+      if (!data) return null;
+
+      const result = {
+        priceChangePercent: Number(data.priceChangePercent ?? 0),
+        lastPrice: data.lastPrice ?? '0',
+      };
+
+      await this.redisService.setJson(cacheKey, result, this.TICKERS_CACHE_TTL);
+      return result;
+    } catch (error) {
+      this.logger.warn(
+        `Binance 24hr ticker fetch failed for ${symbol}: ${error}`,
+      );
+      return null;
     }
   }
 }
