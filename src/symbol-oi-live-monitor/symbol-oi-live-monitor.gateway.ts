@@ -23,10 +23,15 @@ export class SymbolOiLiveMonitorGateway
   wss: Server;
 
   constructor(private readonly monitorService: SymbolOiLiveMonitorService) {
-    // Listen to status changes from the service and broadcast to subscribed clients
-    this.monitorService.onStatusChange((status: any) => {
-      this.broadcastStatus(status.symbol, status);
-    });
+    if (this.monitorService) {
+      this.monitorService.onStatusChange((status: any) => {
+        this.broadcastStatus(status.symbol, status);
+      });
+    } else {
+      this.logger.warn(
+        'MonitorService is undefined, live monitoring will not work',
+      );
+    }
   }
 
   handleConnection(client: any) {
@@ -35,6 +40,11 @@ export class SymbolOiLiveMonitorGateway
 
   handleDisconnect(client: any) {
     this.logger.log(`Client disconnected: ${client.id}`);
+
+    if (!this.monitorService) {
+      this.logger.warn('MonitorService not available');
+      return;
+    }
 
     // Unsubscribe client from all symbols
     const subscribed = this.getClientSubscriptions(client);
@@ -48,6 +58,11 @@ export class SymbolOiLiveMonitorGateway
   handleSubscribe(client: any, data: LiveOMonitorSubscribe): void {
     const symbol = data.symbol.toUpperCase();
     this.logger.log(`Client ${client.id} subscribing to: ${symbol}`);
+
+    if (!this.monitorService) {
+      this.logger.warn('MonitorService not available');
+      return;
+    }
 
     // Subscribe to symbol monitoring
     this.monitorService.subscribe(symbol);
@@ -67,6 +82,11 @@ export class SymbolOiLiveMonitorGateway
     const symbol = data.symbol.toUpperCase();
     this.logger.log(`Client ${client.id} unsubscribing from: ${symbol}`);
 
+    if (!this.monitorService) {
+      this.logger.warn('MonitorService not available');
+      return;
+    }
+
     this.monitorService.unsubscribe(symbol);
     this.removeClientSubscription(client, symbol);
     this.broadcastToClient(client, symbol, null);
@@ -74,6 +94,8 @@ export class SymbolOiLiveMonitorGateway
 
   // Broadcast status update to all clients subscribed to a symbol
   broadcastStatus(symbol: string, status: LiveOIStatus): void {
+    if (!this.monitorService) return;
+
     this.wss.clients.forEach((client: any) => {
       if (this.isClientSubscribedTo(client, symbol)) {
         client.send(
