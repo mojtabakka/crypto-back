@@ -31,6 +31,7 @@ import { IchimokuCombinedSchedulerModule } from './ichimoku-combined-scheduler/i
 import { IchimokuBaseConversionModule } from './ichimoku-base-conversion/ichimoku-base-conversion.module';
 import { IchimokuChikouPullbackModule } from './ichimoku-chikou-pullback/ichimoku-chikou-pullback.module';
 import { IchimokuOiScreenerModule } from './ichimoku-oi-screener/ichimoku-oi-screener.module';
+import { SymbolOiMonitorModule } from './symbol-oi-monitor/symbol-oi-monitor.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -84,6 +85,7 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     IchimokuBaseConversionModule,
     IchimokuChikouPullbackModule,
     IchimokuOiScreenerModule,
+    SymbolOiMonitorModule,
   ],
   controllers: [AppController],
   providers: [AppService],
