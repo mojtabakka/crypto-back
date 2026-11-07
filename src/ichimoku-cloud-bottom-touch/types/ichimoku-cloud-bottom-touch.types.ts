@@ -10,6 +10,7 @@ export interface IchimokuCloudBottomTouchSignal {
   priceDistanceToCloudBottomPct: number;
   wasAboveCloud: boolean;
   barsSinceAboveCloud: number | null;
+  bounceProbabilityPct: number;
   signal: 'BUY';
   score: number;
   volumeRatio: number;

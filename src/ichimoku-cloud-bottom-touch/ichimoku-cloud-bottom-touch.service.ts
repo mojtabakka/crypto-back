@@ -128,12 +128,20 @@ export class IchimokuCloudBottomTouchService {
         return null;
       }
 
-      const candles = klines.map((k) => ({
+      const candles: {
+        openTime: number;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+      }[] = klines.map((k) => ({
         openTime: k[0],
         open: parseFloat(k[1]),
         high: parseFloat(k[2]),
         low: parseFloat(k[3]),
         close: parseFloat(k[4]),
+        volume: parseFloat(k[5]),
       }));
 
       const signal = this.computeCloudBottomTouch(symbol, candles, marketData);
@@ -174,6 +182,7 @@ export class IchimokuCloudBottomTouchService {
       high: number;
       low: number;
       close: number;
+      volume: number;
     }[],
     marketData: Map<string, { marketCap: number; volume24h: number }>,
   ): IchimokuCloudBottomTouchSignal | null {
@@ -266,6 +275,32 @@ export class IchimokuCloudBottomTouchService {
       score += 15; // Somewhat recently above cloud = medium score
     }
 
+    // Compute volume ratio (current volume vs average volume)
+    const currentVolume = candles[last].volume;
+    const avgVolume =
+      candles
+        .slice(Math.max(0, candles.length - 20))
+        .reduce((sum, c) => sum + c.volume, 0) / Math.min(candles.length, 20);
+    const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 1;
+
+    // Bounce probability calculation (0-100%)
+    let bounceProbability = Math.max(
+      0,
+      100 - Math.abs(priceDistanceToCloudBottomPct) * 20,
+    ); // Proximity
+    if (wasAboveCloud) {
+      bounceProbability += 20; // Recently above cloud adds probability
+      if (barsSinceAboveCloud !== null && barsSinceAboveCloud <= 10) {
+        bounceProbability += 15; // Very recent adds more
+      } else if (barsSinceAboveCloud !== null && barsSinceAboveCloud <= 30) {
+        bounceProbability += 8; // Moderately recent adds some
+      }
+    }
+    if (volumeRatio > 1.5) bounceProbability += 10; // High volume confirmation
+    if (volumeRatio > 1.2) bounceProbability += 5; // Moderate volume confirmation
+
+    bounceProbability = Math.max(0, Math.min(100, bounceProbability)); // Clamp to 0-100
+
     const marketInfo = marketData.get(symbol) ?? { marketCap: 0, volume24h: 0 };
 
     return {
@@ -280,6 +315,7 @@ export class IchimokuCloudBottomTouchService {
       priceDistanceToCloudBottomPct,
       wasAboveCloud,
       barsSinceAboveCloud,
+      bounceProbabilityPct: bounceProbability,
       score,
       volumeRatio: 0,
       marketCap: marketInfo.marketCap,
