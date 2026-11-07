@@ -1,6 +1,9 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { IchimokuScannerService } from './ichimoku.service';
-import type { IchimokuScanResult } from './types/ichimoku.types';
+import type {
+  IchimokuNearCloudBottomScanResult,
+  IchimokuScanResult,
+} from './types/ichimoku.types';
 
 @Controller('ichimoku-scanner')
 export class IchimokuScannerController {
@@ -18,6 +21,23 @@ export class IchimokuScannerController {
       limit: limit ? Number(limit) : undefined,
       interval,
       exchange,
+    });
+  }
+
+  @Get('near-cloud-bottom')
+  async nearCloudBottom(
+    @Query('symbols') symbols?: string,
+    @Query('limit') limit?: string,
+    @Query('interval') interval?: string,
+    @Query('exchange') exchange?: string,
+    @Query('thresholdPct') thresholdPct?: string,
+  ): Promise<IchimokuNearCloudBottomScanResult> {
+    return this.scanner.scanNearCloudBottom({
+      symbols,
+      limit: limit ? Number(limit) : undefined,
+      interval,
+      exchange,
+      thresholdPct: thresholdPct ? Number(thresholdPct) : undefined,
     });
   }
 }

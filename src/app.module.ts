@@ -31,6 +31,7 @@ import { IchimokuCombinedSchedulerModule } from './ichimoku-combined-scheduler/i
 import { IchimokuBaseConversionModule } from './ichimoku-base-conversion/ichimoku-base-conversion.module';
 import { IchimokuChikouPullbackModule } from './ichimoku-chikou-pullback/ichimoku-chikou-pullback.module';
 import { IchimokuOiScreenerModule } from './ichimoku-oi-screener/ichimoku-oi-screener.module';
+import { IchimokuCloudBottomTouchModule } from './ichimoku-cloud-bottom-touch/ichimoku-cloud-bottom-touch.module';
 import { SymbolOiMonitorModule } from './symbol-oi-monitor/symbol-oi-monitor.module';
 import { SymbolOiLiveMonitorModule } from './symbol-oi-live-monitor/symbol-oi-live-monitor.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
@@ -88,6 +89,7 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     IchimokuOiScreenerModule,
     SymbolOiMonitorModule,
     SymbolOiLiveMonitorModule,
+    IchimokuCloudBottomTouchModule,
   ],
   controllers: [AppController],
   providers: [AppService],

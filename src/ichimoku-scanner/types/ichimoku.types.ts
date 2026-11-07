@@ -50,3 +50,34 @@ export interface IchimokuScanParams {
   interval?: string;
   exchange?: string;
 }
+
+export interface IchimokuNearCloudBottomSignal {
+  symbol: string;
+  price: number;
+  tenkan: number;
+  kijun: number;
+  spanA: number;
+  spanB: number;
+  cloudTop: number;
+  cloudBottom: number;
+  distanceToCloudBottomPct: number;
+  position: 'ABOVE_CLOUD' | 'INSIDE_CLOUD' | 'BELOW_CLOUD';
+  signal: 'NEAR_CLOUD_BOTTOM';
+}
+
+export interface IchimokuNearCloudBottomScanResult {
+  timestamp: string;
+  interval: string;
+  exchange: string;
+  thresholdPct: number;
+  totalScanned: number;
+  matches: IchimokuNearCloudBottomSignal[];
+}
+
+export interface IchimokuNearCloudBottomScanParams {
+  symbols?: string;
+  limit?: number;
+  interval?: string;
+  exchange?: string;
+  thresholdPct?: number;
+}
