@@ -81,3 +81,40 @@ export interface IchimokuNearCloudBottomScanParams {
   exchange?: string;
   thresholdPct?: number;
 }
+
+export interface IchimokuThickCloudPullbackSignal {
+  symbol: string;
+  price: number;
+  tenkan: number;
+  kijun: number;
+  spanA: number;
+  spanB: number;
+  cloudTop: number;
+  cloudBottom: number;
+  cloudThicknessPct: number;
+  breakoutBarsAgo: number;
+  breakoutPrice: number;
+  pullbackTouchType: 'CLOSE_ABOVE_BOTTOM' | 'WICK_TOUCH' | 'INSIDE_NEAR_BOTTOM';
+  distanceToCloudBottomPct: number;
+  signal: 'THICK_CLOUD_PULLBACK';
+}
+
+export interface IchimokuThickCloudPullbackScanResult {
+  timestamp: string;
+  interval: string;
+  exchange: string;
+  minCloudThicknessPct: number;
+  touchTolerancePct: number;
+  totalScanned: number;
+  matches: IchimokuThickCloudPullbackSignal[];
+}
+
+export interface IchimokuThickCloudPullbackScanParams {
+  symbols?: string;
+  limit?: number;
+  interval?: string;
+  exchange?: string;
+  minCloudThicknessPct?: number;
+  touchTolerancePct?: number;
+  breakoutLookbackBars?: number;
+}

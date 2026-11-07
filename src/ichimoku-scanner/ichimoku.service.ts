@@ -8,6 +8,9 @@ import type {
   IchimokuScanParams,
   IchimokuScanResult,
   IchimokuSignal,
+  IchimokuThickCloudPullbackScanParams,
+  IchimokuThickCloudPullbackScanResult,
+  IchimokuThickCloudPullbackSignal,
 } from './types/ichimoku.types';
 
 type SupportedExchange = 'binance' | 'bybit' | 'mexc' | 'toobit';
@@ -15,6 +18,9 @@ type SupportedExchange = 'binance' | 'bybit' | 'mexc' | 'toobit';
 const LOOKBACK_DAYS = 200;
 const MIN_CANDLES = 80;
 const DEFAULT_NEAR_CLOUD_THRESHOLD_PCT = 1;
+const DEFAULT_THICK_CLOUD_MIN_PCT = 1.5;
+const DEFAULT_TOUCH_TOLERANCE_PCT = 0.75;
+const DEFAULT_BREAKOUT_LOOKBACK_BARS = 60;
 
 const INTERVAL_LOOKBACK_DAYS: Record<string, number> = {
   '1m': 3,
@@ -44,6 +50,21 @@ interface IchimokuSnapshot {
   price: number;
   tenkan: number;
   kijun: number;
+  spanA: number;
+  spanB: number;
+  cloudTop: number;
+  cloudBottom: number;
+}
+
+interface Candle {
+  openTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+interface CloudPoint {
   spanA: number;
   spanB: number;
   cloudTop: number;
@@ -161,6 +182,80 @@ export class IchimokuScannerService {
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Ichimoku near-cloud-bottom evaluation failed for ${symbol}`, msg);
+      return null;
+    }
+  }
+
+  async scanThickCloudPullback(
+    params: IchimokuThickCloudPullbackScanParams = {},
+  ): Promise<IchimokuThickCloudPullbackScanResult> {
+    const targetSymbols = await this.resolveTargetSymbols(params.symbols, params.limit);
+    const interval = params.interval ?? '1d';
+    const exchange = (params.exchange as SupportedExchange) ?? 'binance';
+    const minCloudThicknessPct = this.normalizePositive(params.minCloudThicknessPct, DEFAULT_THICK_CLOUD_MIN_PCT, 30);
+    const touchTolerancePct = this.normalizePositive(params.touchTolerancePct, DEFAULT_TOUCH_TOLERANCE_PCT, 10);
+    const breakoutLookbackBars = Math.round(this.normalizePositive(params.breakoutLookbackBars, DEFAULT_BREAKOUT_LOOKBACK_BARS, 250));
+
+    this.logger.log(
+      `Ichimoku thick-cloud pullback scan started for ${targetSymbols.length} symbols (${interval}, exchange=${exchange}, minThickness=${minCloudThicknessPct}%, tolerance=${touchTolerancePct}%, lookback=${breakoutLookbackBars})`,
+    );
+
+    const concurrency = 5;
+    const matches: IchimokuThickCloudPullbackSignal[] = [];
+
+    for (let i = 0; i < targetSymbols.length; i += concurrency) {
+      const batch = targetSymbols.slice(i, i + concurrency);
+      const results = await Promise.all(
+        batch.map((sym) =>
+          this.evaluateThickCloudPullback(
+            sym,
+            interval,
+            exchange,
+            minCloudThicknessPct,
+            touchTolerancePct,
+            breakoutLookbackBars,
+          ),
+        ),
+      );
+      for (const signal of results) {
+        if (signal) matches.push(signal);
+      }
+    }
+
+    matches.sort((a, b) => b.cloudThicknessPct - a.cloudThicknessPct);
+
+    return {
+      timestamp: new Date().toISOString(),
+      interval,
+      exchange,
+      minCloudThicknessPct,
+      touchTolerancePct,
+      totalScanned: targetSymbols.length,
+      matches,
+    };
+  }
+
+  async evaluateThickCloudPullback(
+    symbol: string,
+    interval: string,
+    exchange: SupportedExchange,
+    minCloudThicknessPct: number,
+    touchTolerancePct: number,
+    breakoutLookbackBars: number,
+  ): Promise<IchimokuThickCloudPullbackSignal | null> {
+    try {
+      const candles = await this.loadCandles(symbol, interval, exchange);
+      if (!candles) return null;
+      return this.computeThickCloudPullback(
+        symbol,
+        candles,
+        minCloudThicknessPct,
+        touchTolerancePct,
+        breakoutLookbackBars,
+      );
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Ichimoku thick-cloud pullback evaluation failed for ${symbol}`, msg);
       return null;
     }
   }
@@ -316,6 +411,144 @@ export class IchimokuScannerService {
       cloudTop: Math.max(spanA, spanB),
       cloudBottom: Math.min(spanA, spanB),
     };
+  }
+
+  private computeThickCloudPullback(
+    symbol: string,
+    candles: Candle[],
+    minCloudThicknessPct: number,
+    touchTolerancePct: number,
+    breakoutLookbackBars: number,
+  ): IchimokuThickCloudPullbackSignal | null {
+    const snapshot = this.computeSnapshot(candles);
+    if (!snapshot) return null;
+
+    const { price, tenkan, kijun, spanA, spanB, cloudTop, cloudBottom } = snapshot;
+    if (cloudBottom === 0) return null;
+
+    const cloudThicknessPct = ((cloudTop - cloudBottom) / cloudBottom) * 100;
+    if (cloudThicknessPct < minCloudThicknessPct) return null;
+
+    const distanceToCloudBottomPct = ((price - cloudBottom) / cloudBottom) * 100;
+    const lastCandle = candles[candles.length - 1];
+    const touchBandTop = cloudBottom * (1 + touchTolerancePct / 100);
+
+    const closedDeepInsideCloud = lastCandle.close < cloudBottom;
+    const clearlyAboveTouch = lastCandle.low > touchBandTop;
+    if (closedDeepInsideCloud || clearlyAboveTouch) return null;
+
+    const wickTouchedBottom = lastCandle.low <= touchBandTop && lastCandle.close >= cloudBottom;
+    const insideNearBottom = lastCandle.close >= cloudBottom && lastCandle.close <= touchBandTop;
+    if (!wickTouchedBottom && !insideNearBottom) return null;
+
+    const pullbackTouchType = insideNearBottom
+      ? lastCandle.low <= cloudBottom
+        ? 'WICK_TOUCH'
+        : 'INSIDE_NEAR_BOTTOM'
+      : 'CLOSE_ABOVE_BOTTOM';
+
+    const cloudSeries = this.computeCloudSeries(candles);
+    const breakout = this.findBullishBreakoutBeforePullback(candles, cloudSeries, breakoutLookbackBars);
+    if (!breakout) return null;
+
+    return {
+      symbol,
+      price,
+      tenkan,
+      kijun,
+      spanA,
+      spanB,
+      cloudTop,
+      cloudBottom,
+      cloudThicknessPct,
+      breakoutBarsAgo: breakout.barsAgo,
+      breakoutPrice: breakout.price,
+      pullbackTouchType,
+      distanceToCloudBottomPct,
+      signal: 'THICK_CLOUD_PULLBACK',
+    };
+  }
+
+  private computeCloudSeries(candles: Candle[]): Array<CloudPoint | null> {
+    const highs = candles.map((c) => c.high);
+    const lows = candles.map((c) => c.low);
+    const tenkan = this.computeTenkanKijun(highs, lows, 8);
+    const kijun = this.computeTenkanKijun(highs, lows, 25);
+
+    return candles.map((_, i) => {
+      const cloudIndex = i - 26;
+      if (cloudIndex < 25) return null;
+
+      const t = tenkan[cloudIndex];
+      const k = kijun[cloudIndex];
+      if (!Number.isFinite(t) || !Number.isFinite(k)) return null;
+
+      const spanA = (t + k) / 2;
+      const spanBStart = cloudIndex - 51;
+      if (spanBStart < 0) return null;
+
+      const spanB =
+        (this.highest(highs, spanBStart, cloudIndex) +
+          this.lowest(lows, spanBStart, cloudIndex)) /
+        2;
+
+      return {
+        spanA,
+        spanB,
+        cloudTop: Math.max(spanA, spanB),
+        cloudBottom: Math.min(spanA, spanB),
+      };
+    });
+  }
+
+  private findBullishBreakoutBeforePullback(
+    candles: Candle[],
+    cloudSeries: Array<CloudPoint | null>,
+    lookbackBars: number,
+  ): { barsAgo: number; price: number } | null {
+    const last = candles.length - 1;
+    const start = Math.max(77, last - lookbackBars);
+
+    let breakout: { barsAgo: number; price: number } | null = null;
+    let wasAboveCloud = false;
+
+    for (let i = start; i < last; i++) {
+      const cloud = cloudSeries[i];
+      if (!cloud) continue;
+
+      const close = candles[i].close;
+      const prevClose = i > 0 ? candles[i - 1].close : close;
+      const prevCloud = cloudSeries[i - 1];
+
+      const crossedUp =
+        prevCloud != null && prevClose <= prevCloud.cloudTop && close > cloud.cloudTop;
+      const closedAbove = close > cloud.cloudTop;
+
+      if (crossedUp) {
+        breakout = { barsAgo: last - i, price: close };
+        wasAboveCloud = true;
+        continue;
+      }
+
+      if (breakout && closedAbove) {
+        wasAboveCloud = true;
+      }
+
+      // If it fell meaningfully back into/below cloud after breakout and never re-established,
+      // we still keep the most recent valid breakout as long as it spent time above cloud.
+      if (breakout && prevCloud != null && close < cloud.cloudBottom && !wasAboveCloud) {
+        breakout = null;
+      }
+    }
+
+    if (!breakout || breakout.barsAgo < 2) return null;
+    return breakout;
+  }
+
+  private normalizePositive(value: number | string | undefined, fallback: number, max: number): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.min(parsed, max);
   }
 
   private normalizeThreshold(value: number | string | undefined): number {
