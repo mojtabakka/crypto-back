@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { IchimokuCombinedService } from 'src/ichimoku-combined/ichimoku-combined.service';
-import { BinanceService } from 'src/binance/binance.service';
+import { MarketSignalService } from 'src/market-signal/market-signal.service';
 import type {
+  FourFormulaSignal,
   IchimokuOIScanParams,
   IchimokuOIScanResult,
   IchimokuOISignal,
@@ -10,7 +11,7 @@ import type {
 
 const BATCH_SIZE = 5;
 const BATCH_DELAY_MS = 1000;
-const OI_LOOKBACK_HOURS = 24;
+const MIN_VOLUME_RATIO = 1.2;
 
 @Injectable()
 export class IchimokuOiScreenerService {
@@ -18,7 +19,7 @@ export class IchimokuOiScreenerService {
 
   constructor(
     private readonly ichimokuService: IchimokuCombinedService,
-    private readonly binanceService: BinanceService,
+    private readonly marketSignalService: MarketSignalService,
   ) {}
 
   async scan(params: IchimokuOIScanParams = {}): Promise<IchimokuOIScanResult> {
@@ -26,12 +27,10 @@ export class IchimokuOiScreenerService {
     const exchange: string = params.exchange ?? 'binance';
 
     if (exchange !== 'binance') {
-      this.logger.warn(
-        `OI screener only supports binance, got ${exchange}. Switching to binance.`,
-      );
+      this.logger.warn(`OI screener currently analyzes 4-factor data best on binance; got ${exchange}, using binance analysis.`);
     }
 
-    // Step 1: Run Ichimoku Combined scan to get candidate signals
+    // Step 1: Chikou candle breaks up AND price above cloud (Ichimoku combined)
     const ichimokuResult = await this.ichimokuService.scan({
       symbols: params.symbols,
       limit: params.limit ? Number(params.limit) : undefined,
@@ -40,38 +39,34 @@ export class IchimokuOiScreenerService {
     });
 
     this.logger.log(
-      `Ichimoku OI screener: ${ichimokuResult.matches.length} ichimoku matches found, starting OI/price enrichment...`,
+      `Ichimoku OI screener: ${ichimokuResult.matches.length}/${ichimokuResult.totalScanned} passed Chikou-up + above-cloud; analyzing 4-factor (price/OI/volume/funding)...`,
     );
 
-    // Step 2: Enrich each match with OI and price data from Binance
+    // Step 2: From those symbols only, apply 4-formula long/short analysis (volume/OI/funding/price)
     const enriched: IchimokuOISignal[] = [];
 
     for (let i = 0; i < ichimokuResult.matches.length; i += BATCH_SIZE) {
       const batch = ichimokuResult.matches.slice(i, i + BATCH_SIZE);
-      const results = await Promise.all(
-        batch.map((signal) => this.enrichWithOI(signal)),
-      );
-
-      for (const enrichedSignal of results) {
-        if (enrichedSignal) {
-          enriched.push(enrichedSignal);
-        }
+      const results = await Promise.all(batch.map((signal) => this.enrichWithFourFactors(signal)));
+      for (const item of results) {
+        if (item) enriched.push(item);
       }
-
       if (i + BATCH_SIZE < ichimokuResult.matches.length) {
         await this.sleep(BATCH_DELAY_MS);
       }
     }
 
-    // Step 3: Filter for bullish classifications only (Long Buildup + Short Covering)
+    // Step 3: Keep symbols where 4 formulas indicate bullish participation with meaningful volume
     const bullish = enriched.filter(
       (s) =>
-        s.classification === 'LONG_BUILDUP' ||
-        s.classification === 'SHORT_COVERING',
+        (s.fourFormulaSignal === 'LONG' || s.fourFormulaSignal === 'STRONG_LONG') &&
+        s.volumeRatio >= MIN_VOLUME_RATIO,
     );
 
+    bullish.sort((a, b) => b.volumeRatio - a.volumeRatio || b.fourFormulaScore - a.fourFormulaScore);
+
     this.logger.log(
-      `Ichimoku OI screener complete: ${enriched.length} enriched, ${bullish.length} bullish (LONG_BUILDUP + SHORT_COVERING)`,
+      `Ichimoku OI screener complete: ichimoku=${ichimokuResult.matches.length}, analyzed=${enriched.length}, bullish4Factor+volume=${bullish.length}`,
     );
 
     return {
@@ -80,12 +75,13 @@ export class IchimokuOiScreenerService {
       exchange: 'binance',
       totalScanned: ichimokuResult.totalScanned,
       ichimokuMatches: ichimokuResult.matches.length,
+      analyzedMatches: enriched.length,
       oiFilteredMatches: bullish.length,
       matches: bullish,
     };
   }
 
-  private async enrichWithOI(signal: {
+  private async enrichWithFourFactors(signal: {
     symbol: string;
     price: number;
     tenkan: number;
@@ -99,38 +95,16 @@ export class IchimokuOiScreenerService {
     barsAgo: number;
   }): Promise<IchimokuOISignal | null> {
     try {
-      // Fetch 24hr price change from Binance
-      const ticker = await this.binanceService.rateLimit(() =>
-        this.binanceService.get24hrTicker(signal.symbol),
-      );
+      const endTime = Date.now();
+      const startTime = endTime - 24 * 60 * 60 * 1000;
+      const analysis = await this.marketSignalService.analyzeSymbol(signal.symbol, startTime, endTime, 'binance');
+      const tf1h = analysis.timeframes.find((t) => t.timeframe === '1h') ?? analysis.timeframes[analysis.timeframes.length - 1];
 
-      if (!ticker) {
-        return null;
-      }
-
-      const priceChangePct = ticker.priceChangePercent;
-
-      // Fetch OI history to calculate OI change %
-      const now = Date.now();
-      const startTime = now - OI_LOOKBACK_HOURS * 60 * 60 * 1000;
-
-      const oiHistory = await this.binanceService.rateLimit(() =>
-        this.binanceService.getOpenInterest(signal.symbol, startTime, now),
-      );
-
-      let oiChangePct = 0;
-      if (oiHistory && oiHistory.length >= 2) {
-        const firstOI = oiHistory[0].sumOpenInterest;
-        const lastOI = oiHistory[oiHistory.length - 1].sumOpenInterest;
-
-        const firstNum = Number(firstOI);
-        const lastNum = Number(lastOI);
-
-        if (firstNum > 0) {
-          oiChangePct = ((lastNum - firstNum) / firstNum) * 100;
-        }
-      }
-
+      const priceChangePct = tf1h?.priceChange ?? 0;
+      const oiChangePct = tf1h?.oiChange ?? 0;
+      const volumeRatio = tf1h?.volumeRatio ?? 0;
+      const fundingRate = tf1h?.fundingRate ?? 0;
+      const fourFormulaSignal = this.normalizeSignal(analysis.finalSignal);
       const classification = this.classify(priceChangePct, oiChangePct);
 
       return {
@@ -138,7 +112,11 @@ export class IchimokuOiScreenerService {
         price: signal.price,
         priceChangePct,
         oiChangePct,
+        volumeRatio,
+        fundingRate,
         classification,
+        fourFormulaSignal,
+        fourFormulaScore: analysis.finalScore ?? 0,
         tenkan: signal.tenkan,
         kijun: signal.kijun,
         spanA: signal.spanA,
@@ -149,23 +127,25 @@ export class IchimokuOiScreenerService {
         breakoutLevel: signal.crossPriceHigh,
         barsSinceCross: signal.barsAgo,
         signal: 'BUY',
-        score: 0,
-        volumeRatio: 0,
-        fundingRate: 0,
+        score: analysis.finalScore ?? 0,
         marketCap: 0,
         volume24h: 0,
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`OI enrichment failed for ${signal.symbol}: ${msg}`);
+      this.logger.warn(`4-factor enrichment failed for ${signal.symbol}: ${msg}`);
       return null;
     }
   }
 
-  private classify(
-    priceChangePct: number,
-    oiChangePct: number,
-  ): OIClassification {
+  private normalizeSignal(signal: string): FourFormulaSignal {
+    if (signal === 'STRONG_LONG' || signal === 'LONG' || signal === 'NEUTRAL' || signal === 'SHORT' || signal === 'STRONG_SHORT') {
+      return signal;
+    }
+    return 'NEUTRAL';
+  }
+
+  private classify(priceChangePct: number, oiChangePct: number): OIClassification {
     const priceUp = priceChangePct > 0;
     const priceDown = priceChangePct < 0;
     const oiUp = oiChangePct > 0;
