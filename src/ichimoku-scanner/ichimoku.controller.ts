@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { IchimokuScannerService } from './ichimoku.service';
 import type {
+  IchimokuKumoTwistScanResult,
   IchimokuNearCloudBottomScanResult,
   IchimokuScanResult,
   IchimokuThickCloudPullbackScanResult,
@@ -60,6 +61,23 @@ export class IchimokuScannerController {
       minCloudThicknessPct: minCloudThicknessPct ? Number(minCloudThicknessPct) : undefined,
       touchTolerancePct: touchTolerancePct ? Number(touchTolerancePct) : undefined,
       breakoutLookbackBars: breakoutLookbackBars ? Number(breakoutLookbackBars) : undefined,
+    });
+  }
+
+  @Get('kumo-twist')
+  async kumoTwist(
+    @Query('symbols') symbols?: string,
+    @Query('limit') limit?: string,
+    @Query('interval') interval?: string,
+    @Query('exchange') exchange?: string,
+    @Query('lookbackBars') lookbackBars?: string,
+  ): Promise<IchimokuKumoTwistScanResult> {
+    return this.scanner.scanKumoTwists({
+      symbols,
+      limit: limit ? Number(limit) : undefined,
+      interval,
+      exchange,
+      lookbackBars: lookbackBars ? Number(lookbackBars) : undefined,
     });
   }
 }

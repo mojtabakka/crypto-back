@@ -2,6 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { MultiExchangeKlineService } from 'src/exchange/multi-exchange-kline.service';
 import { FuturesSymbolsService } from 'src/futures-symbols/futures-symbols.service';
 import type {
+  IchimokuKumoTwistScanParams,
+  IchimokuKumoTwistScanResult,
+  IchimokuKumoTwistSignal,
   IchimokuNearCloudBottomScanParams,
   IchimokuNearCloudBottomScanResult,
   IchimokuNearCloudBottomSignal,
@@ -21,6 +24,7 @@ const DEFAULT_NEAR_CLOUD_THRESHOLD_PCT = 1;
 const DEFAULT_THICK_CLOUD_MIN_PCT = 1.5;
 const DEFAULT_TOUCH_TOLERANCE_PCT = 0.75;
 const DEFAULT_BREAKOUT_LOOKBACK_BARS = 60;
+const DEFAULT_KUMO_TWIST_LOOKBACK_BARS = 40;
 
 const INTERVAL_LOOKBACK_DAYS: Record<string, number> = {
   '1m': 3,
@@ -410,6 +414,144 @@ export class IchimokuScannerService {
       spanB,
       cloudTop: Math.max(spanA, spanB),
       cloudBottom: Math.min(spanA, spanB),
+    };
+  }
+
+  async scanKumoTwists(
+    params: IchimokuKumoTwistScanParams = {},
+  ): Promise<IchimokuKumoTwistScanResult> {
+    const targetSymbols = await this.resolveTargetSymbols(params.symbols, params.limit);
+    const interval = params.interval ?? '1d';
+    const exchange = (params.exchange as SupportedExchange) ?? 'binance';
+    const lookbackBars = Math.round(this.normalizePositive(params.lookbackBars, DEFAULT_KUMO_TWIST_LOOKBACK_BARS, 120));
+
+    this.logger.log(
+      `Ichimoku kumo twist scan started for ${targetSymbols.length} symbols (${interval}, exchange=${exchange}, lookback=${lookbackBars})`,
+    );
+
+    const concurrency = 5;
+    const matches: IchimokuKumoTwistSignal[] = [];
+
+    for (let i = 0; i < targetSymbols.length; i += concurrency) {
+      const batch = targetSymbols.slice(i, i + concurrency);
+      const results = await Promise.all(
+        batch.map((sym) => this.evaluateKumoTwist(sym, interval, exchange, lookbackBars)),
+      );
+      for (const signal of results) {
+        if (signal) matches.push(signal);
+      }
+    }
+
+    matches.sort((a, b) => Math.abs(a.twistBarsFromCurrent) - Math.abs(b.twistBarsFromCurrent));
+
+    return {
+      timestamp: new Date().toISOString(),
+      interval,
+      exchange,
+      lookbackBars,
+      totalScanned: targetSymbols.length,
+      matches,
+    };
+  }
+
+  async evaluateKumoTwist(
+    symbol: string,
+    interval: string,
+    exchange: SupportedExchange,
+    lookbackBars: number,
+  ): Promise<IchimokuKumoTwistSignal | null> {
+    try {
+      const candles = await this.loadCandles(symbol, interval, exchange);
+      if (!candles) return null;
+      return this.computeKumoTwist(symbol, candles, lookbackBars);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Ichimoku kumo twist evaluation failed for ${symbol}`, msg);
+      return null;
+    }
+  }
+
+  private computeKumoTwist(
+    symbol: string,
+    candles: Candle[],
+    lookbackBars: number,
+  ): IchimokuKumoTwistSignal | null {
+    const snapshot = this.computeSnapshot(candles);
+    if (!snapshot) return null;
+
+    const cloudSeries = this.computeCloudSeries(candles);
+    const last = candles.length - 1;
+    const start = Math.max(78, last - lookbackBars);
+    const currentPrice = candles[last].close;
+
+    type Twist = {
+      index: number;
+      mid: number;
+      thicknessPct: number;
+      maxThicknessNearPct: number;
+      location: 'ABOVE_PRICE' | 'BELOW_PRICE';
+    };
+    const twists: Twist[] = [];
+
+    for (let i = start + 1; i <= last; i++) {
+      const prev = cloudSeries[i - 1];
+      const cur = cloudSeries[i];
+      if (!prev || !cur) continue;
+
+      const prevDiff = prev.spanA - prev.spanB;
+      const curDiff = cur.spanA - cur.spanB;
+      const crossed = prevDiff === 0 || curDiff === 0 || prevDiff * curDiff < 0;
+      if (!crossed) continue;
+
+      const mid = (cur.cloudTop + cur.cloudBottom) / 2;
+      if (mid === 0) continue;
+      const thicknessPct = ((cur.cloudTop - cur.cloudBottom) / mid) * 100;
+      const location: 'ABOVE_PRICE' | 'BELOW_PRICE' = mid >= currentPrice ? 'ABOVE_PRICE' : 'BELOW_PRICE';
+
+      // "Vase/goldoon": require cloud to open up around the twist (not a flat ribbon).
+      const windowStart = Math.max(0, i - 12);
+      const windowEnd = Math.min(last, i + 12);
+      let maxThicknessNearPct = thicknessPct;
+      for (let j = windowStart; j <= windowEnd; j++) {
+        const c = cloudSeries[j];
+        if (!c) continue;
+        const m = (c.cloudTop + c.cloudBottom) / 2;
+        if (m === 0) continue;
+        const t = ((c.cloudTop - c.cloudBottom) / m) * 100;
+        if (t > maxThicknessNearPct) maxThicknessNearPct = t;
+      }
+      if (maxThicknessNearPct < 0.6) continue; // too flat to read as a "vase" shape
+
+      twists.push({ index: i, mid, thicknessPct, maxThicknessNearPct, location });
+    }
+
+    if (twists.length === 0) return null;
+
+    // Prefer twist closest to current price level, then closest in bars.
+    twists.sort((a, b) => {
+      const da = Math.abs(a.mid - currentPrice) / currentPrice;
+      const db = Math.abs(b.mid - currentPrice) / currentPrice;
+      if (Math.abs(da - db) > 1e-9) return da - db;
+      return Math.abs(last - a.index) - Math.abs(last - b.index);
+    });
+    const twist = twists[0];
+
+    const { tenkan, kijun, spanA, spanB, cloudTop, cloudBottom, price } = snapshot;
+    return {
+      symbol,
+      price,
+      tenkan,
+      kijun,
+      spanA,
+      spanB,
+      cloudTop,
+      cloudBottom,
+      twistBarsFromCurrent: twist.index - last,
+      twistCloudMid: twist.mid,
+      twistThicknessPct: twist.thicknessPct,
+      twistLocation: twist.location,
+      maxThicknessNearTwistPct: twist.maxThicknessNearPct,
+      signal: 'KUMO_TWIST',
     };
   }
 

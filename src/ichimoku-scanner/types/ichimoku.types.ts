@@ -109,6 +109,40 @@ export interface IchimokuThickCloudPullbackScanResult {
   matches: IchimokuThickCloudPullbackSignal[];
 }
 
+export interface IchimokuKumoTwistSignal {
+  symbol: string;
+  price: number;
+  tenkan: number;
+  kijun: number;
+  spanA: number;
+  spanB: number;
+  cloudTop: number;
+  cloudBottom: number;
+  twistBarsFromCurrent: number; // negative = in past cloud bars relative to current index, positive = ahead in series
+  twistCloudMid: number;
+  twistThicknessPct: number;
+  twistLocation: 'ABOVE_PRICE' | 'BELOW_PRICE';
+  maxThicknessNearTwistPct: number;
+  signal: 'KUMO_TWIST';
+}
+
+export interface IchimokuKumoTwistScanResult {
+  timestamp: string;
+  interval: string;
+  exchange: string;
+  lookbackBars: number;
+  totalScanned: number;
+  matches: IchimokuKumoTwistSignal[];
+}
+
+export interface IchimokuKumoTwistScanParams {
+  symbols?: string;
+  limit?: number;
+  interval?: string;
+  exchange?: string;
+  lookbackBars?: number;
+}
+
 export interface IchimokuThickCloudPullbackScanParams {
   symbols?: string;
   limit?: number;
