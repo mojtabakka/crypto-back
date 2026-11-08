@@ -130,6 +130,11 @@ export class IchimokuOiScreenerService {
         score: analysis.finalScore ?? 0,
         marketCap: 0,
         volume24h: 0,
+        targetPrice1: signal.cloudTop * 1.05,
+        targetPrice2: signal.cloudTop * 1.15,
+        stopLoss: signal.cloudBottom,
+        targetProfit1Pct: ((signal.cloudTop * 1.05 - signal.price) / signal.price) * 100,
+        targetProfit2Pct: ((signal.cloudTop * 1.15 - signal.price) / signal.price) * 100,
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
