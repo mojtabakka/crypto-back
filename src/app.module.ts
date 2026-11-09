@@ -37,6 +37,7 @@ import { IchimokuTkCrossModule } from './ichimoku-tk-cross/ichimoku-tk-cross.mod
 import { FourFormulaScannerModule } from './four-formula-scanner/four-formula-scanner.module';
 import { SymbolOiMonitorModule } from './symbol-oi-monitor/symbol-oi-monitor.module';
 import { SymbolOiLiveMonitorModule } from './symbol-oi-live-monitor/symbol-oi-live-monitor.module';
+import { FundingRateScreenerModule } from './funding-rate-screener/funding-rate-screener.module';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -92,6 +93,7 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     IchimokuOiScreenerModule,
     SymbolOiMonitorModule,
     SymbolOiLiveMonitorModule,
+    FundingRateScreenerModule,
     IchimokuCloudBottomTouchModule,
     IchimokuBreakoutModule,
     IchimokuTkCrossModule,
