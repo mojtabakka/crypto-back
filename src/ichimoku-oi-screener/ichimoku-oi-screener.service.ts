@@ -180,13 +180,12 @@ export class IchimokuOiScreenerService {
   ): Promise<IchimokuOISignal | null> {
     try {
       const now = Date.now();
-      const lookbackDays = 200;
-      const startTime = now - lookbackDays * 24 * 60 * 60 * 1000;
+      const analysisStartTime = now - 7 * 24 * 60 * 60 * 1000; // 7 days for OI analysis
 
       const klines = await this.klineService.getFuturesKlines(
         symbol,
         interval,
-        startTime,
+        analysisStartTime,
         now,
         1000,
         exchange,
@@ -239,9 +238,9 @@ export class IchimokuOiScreenerService {
       // Get 4-factor analysis
       const analysis = await this.marketSignalService.analyzeSymbol(
         symbol,
-        startTime,
+        analysisStartTime,
         now,
-        'binance',
+        exchange as any,
       );
       const tf1h =
         analysis.timeframes.find((t) => t.timeframe === '1h') ??
