@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import axios from 'axios';
 
 import { NewListingEntity, ListingStatus } from './entities/new-listing.entity';
@@ -463,7 +463,9 @@ export class NewListingsService implements OnModuleInit {
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
 
     return this.newListingRepository.find({
-      where: { listedDate: since },
+      // Range, not equality: `listedDate: since` only matched the exact
+      // millisecond the query ran, so "recent" was always empty.
+      where: { listedDate: MoreThanOrEqual(since) },
       order: { listedDate: 'DESC' },
       take: 100,
     });
@@ -475,7 +477,7 @@ export class NewListingsService implements OnModuleInit {
     const now = Date.now();
 
     return this.newListingRepository.find({
-      where: { status, listedDate: now },
+      where: { status, listedDate: LessThanOrEqual(now) },
       order: { listedDate: 'ASC' },
       take: 50,
     });

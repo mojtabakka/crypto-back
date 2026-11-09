@@ -111,7 +111,11 @@ export class LiquidationService implements OnModuleInit, OnModuleDestroy {
 
     this.liquidations.push(liquidation);
 
-    await this.persist(liquidation);
+    try {
+      await this.persist(liquidation);
+    } catch {
+      // Redis is optional; live data keeps flowing without it.
+    }
 
     this.cleanup();
   }
@@ -157,6 +161,16 @@ export class LiquidationService implements OnModuleInit, OnModuleDestroy {
     const cutoff = Date.now() - 48 * 60 * 60 * 1000;
 
     this.liquidations = this.liquidations.filter((item) => item.time >= cutoff);
+  }
+
+  // ==========================================
+  // Recent in-memory liquidations (used by scanners)
+  // ==========================================
+
+  getRecentLiquidations(windowMs = 30 * 60 * 1000): LiquidationDto[] {
+    const cutoff = Date.now() - windowMs;
+
+    return this.liquidations.filter((item) => item.time >= cutoff);
   }
 
   // ==========================================

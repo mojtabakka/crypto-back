@@ -1,11 +1,13 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { NewsService } from './news.service';
+// Query DTOs must be value imports: `import type` erases them from the emitted
+// `design:paramtypes`, so the ValidationPipe would see `Function`, strip every
+// query parameter and answer 400 "property X should not exist".
+import { EventsQueryDto, NewsQueryDto } from './news.types';
 import type {
   CryptoEventResponse,
   CryptoNewsResponse,
-  EventsQueryDto,
-  NewsQueryDto,
   TradingViewNewsResponse,
 } from './news.types';
 

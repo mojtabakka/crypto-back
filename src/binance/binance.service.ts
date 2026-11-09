@@ -167,17 +167,19 @@ export class BinanceService {
     let currentStartTime = startTime;
 
     while (currentStartTime < endTime) {
-      const response = await axios.get<BinanceKline[]>(
-        `${this.futuresBaseUrl}/fapi/v1/klines`,
-        {
-          params: {
-            symbol,
-            interval,
-            startTime: currentStartTime,
-            endTime,
-            limit,
+      const response = await this.rateLimit(() =>
+        axios.get<BinanceKline[]>(
+          `${this.futuresBaseUrl}/fapi/v1/klines`,
+          {
+            params: {
+              symbol,
+              interval,
+              startTime: currentStartTime,
+              endTime,
+              limit,
+            },
           },
-        },
+        ),
       );
 
       const klines = response.data;

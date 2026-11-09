@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MarketService } from './market.service';
-import { BinanceService } from 'src/binance/binance.service';
+import { ExchangeService } from 'src/exchange/exchange.service';
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 
 describe('MarketService', () => {
@@ -11,8 +11,13 @@ describe('MarketService', () => {
       providers: [
         MarketService,
         {
-          provide: BinanceService,
-          useValue: {},
+          provide: ExchangeService,
+          useValue: {
+            getFuturesKlines: jest.fn().mockResolvedValue([]),
+            getOpenInterest: jest.fn().mockResolvedValue([]),
+            getFundingRate: jest.fn().mockResolvedValue([]),
+            getLiquidationOrders: jest.fn().mockResolvedValue([]),
+          },
         },
         {
           provide: LiquidationService,

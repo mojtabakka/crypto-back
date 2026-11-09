@@ -1,4 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export interface CryptoNewsItem {
   id: string;
@@ -62,25 +64,46 @@ export interface CryptoNewsResponse {
   data: CryptoNewsItem[];
 }
 
+// Validation decorators are required: the global ValidationPipe runs with
+// `whitelist` + `forbidNonWhitelisted`, so a DTO with only Swagger metadata
+// rejects every query parameter it receives with HTTP 400.
 export class NewsQueryDto {
   @ApiProperty({ required: false, example: 'BTC' })
+  @IsOptional()
+  @IsString()
   symbol?: string;
 
   @ApiProperty({ required: false, example: 'en' })
+  @IsOptional()
+  @IsString()
   lang?: string;
 
   @ApiProperty({ required: false, default: 50, example: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
   limit?: number;
 }
 
 export class EventsQueryDto {
   @ApiProperty({ required: false, example: 'BTC' })
+  @IsOptional()
+  @IsString()
   symbol?: string;
 
   @ApiProperty({ required: false, default: 50, example: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
   limit?: number;
 
   @ApiProperty({ required: false, example: 'en' })
+  @IsOptional()
+  @IsString()
   lang?: string;
 }
 

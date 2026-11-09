@@ -349,11 +349,12 @@ export class VolumeProfileScannerService {
   }
 
   private roundToTick(price: number): number {
-    if (price >= 10000) return Math.round(price * 100) / 100;
-    if (price >= 1000) return Math.round(price * 100) / 100;
-    if (price >= 100) return Math.round(price * 1000) / 1000;
-    if (price >= 1) return Math.round(price * 10000) / 10000;
-    return Math.round(price * 1000000) / 1000000;
+    if (!Number.isFinite(price) || price === 0) return price;
+
+    const magnitude = Math.floor(Math.log10(Math.abs(price)));
+    const decimals = Math.min(10, Math.max(2, 4 - magnitude));
+
+    return Number(price.toFixed(decimals));
   }
 
   private async saveKlinesToDb(

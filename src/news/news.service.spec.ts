@@ -208,7 +208,8 @@ describe('NewsService', () => {
         expect.any(String),
         expect.objectContaining({
           params: expect.objectContaining({
-            coins: 'Bitcoin',
+            // CoinMarketCal v2 expects the coin slug, not the display name.
+            coins: 'bitcoin',
           }),
         }),
       );

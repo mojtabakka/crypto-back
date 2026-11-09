@@ -418,11 +418,14 @@ export class VolumeProfileService {
   }
 
   private roundToTick(price: number): number {
-    if (price >= 10000) return Math.round(price * 100) / 100;
-    if (price >= 1000) return Math.round(price * 100) / 100;
-    if (price >= 100) return Math.round(price * 1000) / 1000;
-    if (price >= 1) return Math.round(price * 10000) / 10000;
-    return Math.round(price * 1000000) / 1000000;
+    if (!Number.isFinite(price) || price === 0) return price;
+
+    // Keep ~4 significant digits at every scale: sub-cent coins like SHIB
+    // were flattened to 0.00 by fixed 2-decimal rounding.
+    const magnitude = Math.floor(Math.log10(Math.abs(price)));
+    const decimals = Math.min(10, Math.max(2, 4 - magnitude));
+
+    return Number(price.toFixed(decimals));
   }
 
   private findNearestHVN(

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MarketSignalService } from './market-signal.service';
-import { BinanceService } from 'src/binance/binance.service';
+import { ExchangeService } from 'src/exchange/exchange.service';
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 import { RedisService } from 'src/redis/redis.service';
 import type { MarketSnapshot } from 'src/market/signals/market-snapshot';
@@ -13,7 +13,7 @@ describe('MarketSignalService', () => {
       providers: [
         MarketSignalService,
         {
-          provide: BinanceService,
+          provide: ExchangeService,
           useValue: {
             getFuturesKlines: jest.fn(),
             getOpenInterest: jest.fn(),

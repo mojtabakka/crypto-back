@@ -1,6 +1,14 @@
-import { IsIn, IsString, Matches } from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches } from 'class-validator';
 
 export class MarketQueryDto {
+  /**
+   * The frontend always sends `exchange`; without it the global
+   * forbidNonWhitelisted validation rejected /market/:symbol with a 400.
+   */
+  @IsOptional()
+  @IsString()
+  exchange?: string;
+
   @IsString()
   @IsIn([
     '1m',
@@ -23,4 +31,8 @@ export class MarketQueryDto {
     message: 'range must be like 24h, 48h, 7d or 30d',
   })
   range: string = '24h';
+
+  @IsOptional()
+  @IsString()
+  limit?: string;
 }

@@ -421,25 +421,42 @@ export class NewsService {
       'x-api-key': this.COINMARKETCAL_API_KEY,
     };
 
+    interface RawEvent {
+      id: string;
+      title: string;
+      description?: string;
+      date?: string;
+      dateEnd?: string;
+      displayedDate?: string;
+      coins?: Array<{ slug: string; symbol: string; name: string }>;
+      coinName?: string;
+      coinSymbol?: string;
+      sourceUrl?: string;
+      tags?: Array<string | { name?: string }>;
+      impact?: number | null;
+    }
+
     const response = await axios.get<{
-      data?: Array<{
-        id: string;
-        title: string;
-        description?: string;
-        date?: string;
-        dateEnd?: string;
-        displayedDate?: string;
-        coins?: Array<{ slug: string; symbol: string; name: string }>;
-        sourceUrl?: string;
-        impact?: number | null;
-      }>;
+      data?: RawEvent[];
+      result?: { data?: RawEvent[] };
     }>(this.COINMARKETCAL_URL, { params, headers, timeout: 10000 });
 
-    const rawEvents = response.data?.data ?? [];
+    // CoinMarketCal has shipped both { data } and { result: { data } }.
+    const rawEvents =
+      response.data?.result?.data ?? response.data?.data ?? [];
 
     return rawEvents.slice(0, limit).map((event): CryptoEventItem => {
-      const coinNames = event.coins?.map((c) => c.name).join(', ') ?? '';
-      const coinSymbols = event.coins?.map((c) => c.symbol).join(', ') ?? '';
+      const coinNames =
+        event.coins?.map((c) => c.name).join(', ') ?? event.coinName ?? '';
+      const coinSymbols =
+        event.coins?.map((c) => c.symbol).join(', ') ?? event.coinSymbol ?? '';
+
+      const tags = Array.isArray(event.tags)
+        ? event.tags
+            .map((tag) => (typeof tag === 'string' ? tag : tag?.name ?? ''))
+            .filter(Boolean)
+            .join(',')
+        : '';
 
       return {
         id: String(event.id ?? ''),
@@ -447,8 +464,8 @@ export class NewsService {
         description: this.cleanText(event.description ?? ''),
         source: 'CoinMarketCal',
         url: event.sourceUrl ?? '',
-        publishedOn: event.date ? Date.parse(event.date) : 0,
-        tags: coinNames,
+        publishedOn: event.date ? Date.parse(event.date) : NaN || 0,
+        tags,
         coinName: coinNames,
         coinSymbol: coinSymbols,
       };

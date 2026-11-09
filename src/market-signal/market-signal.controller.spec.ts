@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MarketSignalController } from './market-signal.controller';
 import { MarketSignalService } from './market-signal.service';
-import { BinanceService } from 'src/binance/binance.service';
+import { ExchangeService } from 'src/exchange/exchange.service';
 import { LiquidationService } from 'src/liquidation/liquidation.service';
 import { RedisService } from 'src/redis/redis.service';
 
@@ -14,7 +14,7 @@ describe('MarketSignalController', () => {
       providers: [
         MarketSignalService,
         {
-          provide: BinanceService,
+          provide: ExchangeService,
           useValue: {
             getFuturesKlines: jest.fn(),
             getOpenInterest: jest.fn(),

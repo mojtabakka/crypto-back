@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
@@ -19,6 +20,14 @@ import { KlineModule } from './kline/kline.module';
 import { VolumeProfileModule } from './volume-profile/volume-profile.module';
 import { VolumeProfileScannerModule } from './volume-profile/volume-profile-scanner.module';
 import { NewListingsModule } from './new-listings/new-listings.module';
+import { AuthModule } from './auth/auth.module';
+import { CircuitBreakerModule } from './circuit-breaker/circuit-breaker.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { SignalsSuiteModule } from './signals-suite/signals-suite.module';
+import { IntelModule } from './intel/intel.module';
+import { IchimokuModule } from './ichimoku/ichimoku.module';
+import { LogsModule } from './logs/logs.module';
+import { LoggingInterceptor } from './logs/logging.interceptor';
 import { NewListingEntity } from './new-listings/entities/new-listing.entity';
 import { FuturesSymbolEntity } from './futures-symbols/entities/futures-symbol.entity';
 import { WatchlistEntity } from './watchlist/entities/watchlist.entity';
@@ -26,6 +35,7 @@ import { FourHourSignalEntity } from './four-hour-signal/entities/four-hour-sign
 import { LongShortSignalEntity } from './long-short-signal/entities/long-short-signal.entity';
 import { KlineEntity } from './kline/entities/kline.entity';
 import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.entity';
+import { UserEntity } from './auth/users.entity';
 
 @Module({
   imports: [
@@ -36,11 +46,24 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
       username: process.env.DB_USER || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'crypto_volume',
-      entities: [FuturesSymbolEntity, WatchlistEntity, FourHourSignalEntity, LongShortSignalEntity, KlineEntity, VolumeProfileEntity, NewListingEntity],
+      entities: [
+        UserEntity,
+        FuturesSymbolEntity,
+        WatchlistEntity,
+        FourHourSignalEntity,
+        LongShortSignalEntity,
+        KlineEntity,
+        VolumeProfileEntity,
+        NewListingEntity,
+      ],
       synchronize: true,
     }),
     ScheduleModule.forRoot(),
     RedisModule,
+    CircuitBreakerModule,
+    AnalyticsModule,
+    LogsModule,
+    AuthModule,
     MarketModule,
     ExchangeModule,
     LiquidationModule,
@@ -53,11 +76,22 @@ import { VolumeProfileEntity } from './volume-profile/entities/volume-profile.en
     LongShortSignalModule,
     NotificationModule,
     KlineModule,
-    VolumeProfileModule,
+    // Scanner module first: its /volume-profile/signals|scan routes must be
+    // registered before the parameterised /volume-profile/:symbol route.
     VolumeProfileScannerModule,
+    VolumeProfileModule,
     NewListingsModule,
+    SignalsSuiteModule,
+    IntelModule,
+    IchimokuModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
+  ],
 })
 export class AppModule {}
