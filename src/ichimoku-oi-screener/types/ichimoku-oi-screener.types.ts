@@ -5,7 +5,8 @@ export type OIClassification =
   | 'SHORT_BUILDUP'
   | 'NEUTRAL';
 
-export type FourFormulaSignal = 'STRONG_LONG' | 'LONG' | 'NEUTRAL' | 'SHORT' | 'STRONG_SHORT';
+export type FourFormulaSignal =
+  'STRONG_LONG' | 'LONG' | 'NEUTRAL' | 'SHORT' | 'STRONG_SHORT';
 
 export interface IchimokuOISignal {
   symbol: string;
@@ -26,7 +27,7 @@ export interface IchimokuOISignal {
   chikouValue: number;
   breakoutLevel: number;
   barsSinceCross: number;
-  signal: 'BUY';
+  signal: 'BUY' | 'SELL';
   score: number;
   marketCap: number;
   volume24h: number;
