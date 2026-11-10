@@ -179,13 +179,20 @@ export class IchimokuOiScreenerService {
   ): Promise<IchimokuOISignal | null> {
     try {
       const now = Date.now();
-      const lookbackDays = 200;
+      const lookbackDays = 30;
       const startTime = now - lookbackDays * 24 * 60 * 60 * 1000;
 
       const intervalStr = interval ?? '1d';
       const exchangeStr: SupportedExchange = exchange ?? 'binance';
 
-      const klines = await this.klineService.getFuturesKlines(symbol, intervalStr, startTime, now, 1000, exchangeStr);
+      const klines = await this.klineService.getFuturesKlines(
+        symbol,
+        intervalStr,
+        startTime,
+        now,
+        1000,
+        exchangeStr,
+      );
 
 
       if (!klines || klines.length < MIN_CANDLES) {
