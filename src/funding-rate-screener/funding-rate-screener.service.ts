@@ -6,8 +6,6 @@ import type {
   FundingRateSignal,
 } from './types/funding-rate-screener.types';
 
-type SupportedExchange = 'binance' | 'bybit' | 'mexc' | 'toobit';
-
 @Injectable()
 export class FundingRateScreenerService {
   private readonly logger = new Logger(FundingRateScreenerService.name);
@@ -18,9 +16,8 @@ export class FundingRateScreenerService {
     params: FundingRateScanParams = {},
   ): Promise<FundingRateScanResult> {
     const interval = params.interval ?? '1d';
-    const exchange: SupportedExchange =
-      (params.exchange as SupportedExchange) ?? 'binance';
-    const maxFundingRate = params.maxFundingRate ?? -0.05;
+    const exchange: string = params.exchange ?? 'binance';
+    const maxFundingRate = params.maxFundingRate ?? -0.05; // -0.05% default
 
     this.logger.log(
       `Funding rate screener: scanning for funding rate <= ${maxFundingRate}% (exchange=${exchange})`,
@@ -42,7 +39,9 @@ export class FundingRateScreenerService {
             Date.now(),
           );
 
-          if (!fundingRateData || fundingRateData.length === 0) continue;
+          if (!fundingRateData || fundingRateData.length === 0) {
+            continue;
+          }
 
           const latestFunding = fundingRateData[fundingRateData.length - 1];
           const fundingRate = parseFloat(latestFunding.fundingRate);
@@ -64,7 +63,7 @@ export class FundingRateScreenerService {
           }
         } catch (error) {
           this.logger.warn(
-            `Funding rate fetch failed for ${symbol}: ${error}`,
+            `Funding rate fetch failed for ${symbol}: ${error instanceof Error ? error.message : error}`,
           );
         }
       }
