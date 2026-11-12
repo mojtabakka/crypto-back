@@ -221,6 +221,15 @@ export class BinanceService {
       return cached;
     }
 
+    // Binance OI history endpoint only allows up to 500 records.
+    // With a 5m period that is roughly 41.6 hours. Clamp startTime
+    // to the maximum allowed range so the API does not reject the
+    // request with error -1130 (parameter startTime is invalid).
+    const OI_PERIOD_MS = 5 * 60 * 1000;
+    const OI_MAX_RECORDS = 500;
+    const maxSpan = OI_MAX_RECORDS * OI_PERIOD_MS;
+    const clampedStartTime = Math.max(startTime, endTime - maxSpan);
+
     const response = await this.rateLimit(() =>
       axios.get<BinanceOpenInterest[]>(
         `${this.futuresBaseUrl}/futures/data/openInterestHist`,
@@ -228,9 +237,9 @@ export class BinanceService {
           params: {
             symbol,
             period: '5m',
-            startTime,
+            startTime: clampedStartTime,
             endTime,
-            limit: 500,
+            limit: OI_MAX_RECORDS,
           },
         },
       ),
