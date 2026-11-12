@@ -49,9 +49,12 @@ export interface IchimokuOIScanResult {
   matches: IchimokuOISignal[];
 }
 
+export type ScanDirection = 'LONG' | 'SHORT' | 'ALL';
+
 export interface IchimokuOIScanParams {
   symbols?: string;
   limit?: number;
   interval?: string;
   exchange?: string;
+  direction?: ScanDirection;
 }

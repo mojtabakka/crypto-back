@@ -5,18 +5,44 @@ import { VolumeMarketCapService } from 'src/volume-marketcap/volume-marketcap.se
 import { IchimokuCombinedService } from 'src/ichimoku-combined/ichimoku-combined.service';
 import { MarketSignalService } from 'src/market-signal/market-signal.service';
 import { SupportedExchange } from 'src/exchange/multi-exchange-kline.service';
+import { ExchangeName } from 'src/exchange/exchange.service';
 import type {
   FourFormulaSignal,
   IchimokuOIScanParams,
   IchimokuOIScanResult,
   IchimokuOISignal,
   OIClassification,
+  ScanDirection,
 } from './types/ichimoku-oi-screener.types';
 
 const BATCH_SIZE = 5;
 const BATCH_DELAY_MS = 1000;
 const MIN_VOLUME_RATIO = 1.2;
 const MIN_CANDLES = 100;
+
+const INTERVAL_LOOKBACK_DAYS: Record<string, number> = {
+  '1m': 3,
+  '3m': 5,
+  '5m': 10,
+  '15m': 20,
+  '30m': 30,
+  '1h': 60,
+  '2h': 80,
+  '4h': 100,
+  '6h': 120,
+  '8h': 140,
+  '12h': 160,
+  '1d': 200,
+  '3d': 250,
+  '1w': 300,
+};
+
+interface FuturesSymbolEntity {
+  symbol: string;
+  quoteAsset: string;
+  status: string;
+  contractType: string;
+}
 
 interface Candle {
   openTime: number;
@@ -25,13 +51,6 @@ interface Candle {
   low: number;
   close: number;
   volume: number;
-}
-
-interface FuturesSymbolEntity {
-  symbol: string;
-  quoteAsset: string;
-  status: string;
-  contractType: string;
 }
 
 @Injectable()
@@ -50,15 +69,15 @@ export class IchimokuOiScreenerService {
     params: IchimokuOIScanParams = {},
   ): Promise<IchimokuOIScanResult> {
     const interval = params.interval ?? '1d';
-    const exchange: string = params.exchange ?? 'binance';
+    const exchange: SupportedExchange = (params.exchange ?? 'binance') as SupportedExchange;
+    const direction: ScanDirection = params.direction ?? 'ALL';
 
     if (exchange !== 'binance') {
-      this.logger.warn(
-        `OI screener currently analyzes 4-factor data best on binance; got ${exchange}, using binance analysis.`,
+      this.logger.log(
+        `Ichimoku OI screener currently analyzes 4-factor data best on binance; got ${exchange}, using binance analysis.`,
       );
     }
 
-    // Step 1: Get ichimoku combined results (bullish: Chikou up + price above cloud)
     const ichimokuResult = await this.ichimokuService.scan({
       symbols: params.symbols,
       limit: params.limit ? Number(params.limit) : undefined,
@@ -70,14 +89,11 @@ export class IchimokuOiScreenerService {
       `Ichimoku OI screener: ${ichimokuResult.matches.length}/${ichimokuResult.totalScanned} passed Chikou-up + above-cloud; analyzing 4-factor (price/OI/volume/funding)...`,
     );
 
-    // Step 2: From bullish ichimoku matches, apply 4-formula analysis
     const enriched: IchimokuOISignal[] = [];
 
     for (let i = 0; i < ichimokuResult.matches.length; i += BATCH_SIZE) {
       const batch = ichimokuResult.matches.slice(i, i + BATCH_SIZE);
-      const results = await Promise.all(
-        batch.map((signal) => this.enrichWithFourFactors(signal)),
-      );
+      const results = await Promise.all(batch.map((signal) => this.enrichWithFourFactors(signal)));
       for (const item of results) {
         if (item) enriched.push(item);
       }
@@ -86,7 +102,6 @@ export class IchimokuOiScreenerService {
       }
     }
 
-    // Step 3: Keep symbols where 4 formulas indicate bullish participation with meaningful volume
     const bullish = enriched.filter(
       (s) =>
         (s.fourFormulaSignal === 'LONG' || s.fourFormulaSignal === 'STRONG_LONG') &&
@@ -95,19 +110,23 @@ export class IchimokuOiScreenerService {
 
     bullish.sort((a, b) => b.volumeRatio - a.volumeRatio || b.fourFormulaScore - a.fourFormulaScore);
 
-    // Step 4: Scan for bearish signals (Chikou broke down AND price below cloud AND SHORT/STRONG_SHORT)
-    const bearish = await this.scanBearish(
-      params.symbols,
-      params.limit ? Number(params.limit) : undefined,
-      interval,
-      exchange as SupportedExchange,
-      ichimokuResult.matches.map((s) => s.symbol),
-    );
+    let bearish: IchimokuOISignal[] = [];
 
-    const allMatches = [...bullish, ...bearish];
+    if (direction === 'SHORT' || direction === 'ALL') {
+      bearish = await this.scanBearish(
+        params.symbols,
+        params.limit ? Number(params.limit) : undefined,
+        interval,
+        exchange,
+        ichimokuResult.matches.map((s) => s.symbol),
+      );
+      bearish.sort((a, b) => b.volumeRatio - a.volumeRatio || b.fourFormulaScore - a.fourFormulaScore);
+    }
+
+    const allMatches = direction === 'LONG' ? bullish : [...bullish, ...bearish];
 
     this.logger.log(
-      `Ichimoku OI screener complete: ichimoku=${ichimokuResult.matches.length}, analyzed=${enriched.length}, bullish4Factor+volume=${bullish.length}, bearish4Factor+volume=${bearish.length}`,
+      `Ichimoku OI screener complete: direction=${direction}, ichimoku=${ichimokuResult.matches.length}, analyzed=${enriched.length}, bullish=${bullish.length}, bearish=${bearish.length}, total=${allMatches.length}`,
     );
 
     return {
@@ -116,15 +135,12 @@ export class IchimokuOiScreenerService {
       exchange: 'binance',
       totalScanned: ichimokuResult.totalScanned,
       ichimokuMatches: ichimokuResult.matches.length,
-      analyzedMatches: enriched.length + bearish.length,
+      analyzedMatches: enriched.length,
       oiFilteredMatches: allMatches.length,
       matches: allMatches,
     };
   }
 
-  /**
-   * Scan for bearish signals: Chikou broke down AND price below cloud AND SHORT/STRONG_SHORT
-   */
   private async scanBearish(
     symbols?: string | undefined,
     limit?: number | undefined,
@@ -157,7 +173,7 @@ export class IchimokuOiScreenerService {
     for (let i = 0; i < symbolsToScan.length; i += BATCH_SIZE) {
       const batch = symbolsToScan.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(
-        batch.map((sym) => this.scanBearishSymbol(sym, interval, exchange)),
+        batch.map((sym) => this.scanBearishSymbol(sym, interval ?? '1d', exchange ?? 'binance')),
       );
       for (const item of results) {
         if (item) bearish.push(item);
@@ -174,26 +190,15 @@ export class IchimokuOiScreenerService {
 
   private async scanBearishSymbol(
     symbol: string,
-    interval?: string,
-    exchange?: SupportedExchange,
+    interval: string,
+    exchange: SupportedExchange,
   ): Promise<IchimokuOISignal | null> {
     try {
       const now = Date.now();
-      const lookbackDays = 30;
+      const lookbackDays = 200;
       const startTime = now - lookbackDays * 24 * 60 * 60 * 1000;
 
-      const intervalStr = interval ?? '1d';
-      const exchangeStr: SupportedExchange = exchange ?? 'binance';
-
-      const klines = await this.klineService.getFuturesKlines(
-        symbol,
-        intervalStr,
-        startTime,
-        now,
-        1000,
-        exchangeStr,
-      );
-
+      const klines = await this.klineService.getFuturesKlines(symbol, interval, startTime, now, 1000, exchange);
 
       if (!klines || klines.length < MIN_CANDLES) {
         return null;
@@ -211,7 +216,6 @@ export class IchimokuOiScreenerService {
       const lastCandle = candles[candles.length - 1];
       const price = lastCandle.close;
 
-      // Compute Ichimoku values
       const closes = candles.map((c) => c.close);
       const highs = candles.map((c) => c.high);
       const lows = candles.map((c) => c.low);
@@ -234,13 +238,11 @@ export class IchimokuOiScreenerService {
       const cloudTop = Math.max(spanA, spanB);
       const cloudBottom = Math.min(spanA, spanB);
 
-      // Check: price below cloud bottom
       if (price >= cloudBottom) {
         return null;
       }
 
-      // Get 4-factor analysis
-      const analysis = await this.marketSignalService.analyzeSymbol(symbol, startTime, now, exchange as any);
+      const analysis = await this.marketSignalService.analyzeSymbol(symbol, startTime, now, exchange as ExchangeName);
       const tf1h = analysis.timeframes.find((t) => t.timeframe === '1h') ?? analysis.timeframes[analysis.timeframes.length - 1];
 
       const priceChangePct = tf1h?.priceChange ?? 0;
@@ -250,12 +252,10 @@ export class IchimokuOiScreenerService {
       const fourFormulaSignal = this.normalizeSignal(analysis.finalSignal);
       const classification = this.classify(priceChangePct, oiChangePct);
 
-      // Only keep SHORT/STRONG_SHORT signals
       if (fourFormulaSignal !== 'SHORT' && fourFormulaSignal !== 'STRONG_SHORT') {
         return null;
       }
 
-      // Check volume ratio minimum
       if (volumeRatio < MIN_VOLUME_RATIO) {
         return null;
       }

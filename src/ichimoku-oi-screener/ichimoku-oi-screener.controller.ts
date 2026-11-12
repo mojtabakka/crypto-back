@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { IchimokuOiScreenerService } from './ichimoku-oi-screener.service';
-import type { IchimokuOIScanResult } from './types/ichimoku-oi-screener.types';
+import type { IchimokuOIScanResult, ScanDirection } from './types/ichimoku-oi-screener.types';
 
 @Controller('ichimoku-oi-screener')
 export class IchimokuOiScreenerController {
@@ -12,12 +12,14 @@ export class IchimokuOiScreenerController {
     @Query('limit') limit?: string,
     @Query('interval') interval?: string,
     @Query('exchange') exchange?: string,
+    @Query('direction') direction?: ScanDirection,
   ): Promise<IchimokuOIScanResult> {
     return this.screener.scan({
       symbols,
       limit: limit ? Number(limit) : undefined,
       interval,
       exchange,
+      direction,
     });
   }
 }
